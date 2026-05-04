@@ -1,0 +1,18 @@
+{
+  "name": "ganga-poker",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "clean:web": "rm -rf apps/web/.next",
+    "dev": "concurrently -n web,ws -c blue,magenta \"npm run dev -w @ganga/web\" \"npm run dev -w @ganga/realtime\"",
+    "build": "npm run build -w @ganga/shared -w @ganga/db && npm run build -w @ganga/web -w @ganga/realtime",
+    "lint": "npm run lint -w @ganga/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}
