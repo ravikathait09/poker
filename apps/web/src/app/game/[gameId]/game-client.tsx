@@ -156,6 +156,15 @@ function resolveRealtimeWsUrl(): string {
     }
   }
 
+  /**
+   * Production behind Apache/nginx: WS is proxied at same host:443 on path /ws,
+   * not on a public port like 4001 (browsers cannot mix wss with :4001 tunneled
+   * the same way — Apache terminates TLS and upgrades /ws → backend).
+   */
+  if (window.location.protocol === "https:") {
+    return `wss://${host}/ws`;
+  }
+
   return `${proto}//${host}:${port}`;
 }
 
