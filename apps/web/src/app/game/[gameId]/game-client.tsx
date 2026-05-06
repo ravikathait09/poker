@@ -827,23 +827,7 @@ export function GameClient({
 
       {payload ? (
         <div className="flex flex-col gap-3 sm:gap-6">
-          {payload.hostSeesAll ? (
-            <div
-              className="rounded-xl border border-amber-500/50 bg-amber-950/40 px-3 py-2 text-[12px] text-amber-100 sm:px-4 sm:py-3 sm:text-sm"
-              role="status"
-            >
-              {/*<strong className="font-semibold text-amber-200">
-                Host godmode active
-              </strong>{" "}
-              {isHost
-                ? "— you can see every player's hole cards while a hand is live."
-                : "— the host can see every player's hole cards while a hand is live."}
-              <span className="ml-1 text-amber-300/80">
-                (Set <code>GANGA_HOST_GODMODE=0</code> on the realtime server to
-                disable.)
-              </span>*/}
-            </div>
-          ) : null}
+         
 
           {!observe ? (
             <div className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[13px] text-slate-300 sm:px-4 sm:py-3 sm:text-sm">
