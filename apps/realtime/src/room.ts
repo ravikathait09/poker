@@ -24,6 +24,20 @@ import { PokerHand, type HandPublic } from "./poker-engine.js";
 
 const STARTING_CHIPS = 1000;
 
+/**
+ * GANGA_HOST_GODMODE=1 lets every host see every contesting player's hole cards
+ * during a live hand. Intended for tutorials/demos/debugging — when on, every
+ * client also receives a `hostSeesAll: true` flag so the UI can display a
+ * transparent banner ("Host can see all hole cards") to every player.
+ *
+ * Read lazily because the realtime entrypoint calls dotenv.config() AFTER
+ * importing room.ts (ES module imports are hoisted), so a top-level
+ * `process.env.GANGA_HOST_GODMODE` read here would always see `undefined`.
+ */
+function hostSeesAllEnabled(): boolean {
+  return process.env.GANGA_HOST_GODMODE === "1";
+}
+
 interface RoomMember {
   playerId: string;
   username: string;
@@ -902,6 +916,18 @@ export class Room {
             }
           }
         }
+      } else if (
+        hostSeesAllEnabled() &&
+        !isObserver &&
+        viewerPlayerId === this.hostPlayerId &&
+        this.activeHand &&
+        inHand
+      ) {
+        // Godmode: send every contesting player's hole cards to the host.
+        // No madeHandLabel — that'd leak board-aware analysis the host can do
+        // mentally and avoids extra server work per broadcast.
+        const hc = this.activeHand.getHoleCards(m.playerId);
+        if (hc) base.holeCards = hc;
       }
       return base;
     });
@@ -933,6 +959,7 @@ export class Room {
         spectatorsAllowed: this.spectatorsAllowed,
       },
       hostPlayerId: this.hostPlayerId,
+      hostSeesAll: hostSeesAllEnabled(),
     };
   }
 

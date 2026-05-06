@@ -51,6 +51,12 @@ interface GamePayload {
   actionClockSeconds?: number;
   autoStartHand?: boolean;
   gameRules?: GameRulesPayload;
+  /**
+   * Server-side env flag (GANGA_HOST_GODMODE=1): when true, the realtime
+   * server is sending the host every contesting player's hole cards. Shown to
+   * every connected client so non-host players know the host can see all cards.
+   */
+  hostSeesAll?: boolean;
 }
 
 type PreAction = "off" | "check_fold" | "check_any" | "call_any";
@@ -198,11 +204,11 @@ function ActionButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`flex min-w-[88px] flex-col items-center justify-center rounded-xl border px-4 py-2 text-sm font-bold uppercase tracking-wide shadow-md transition disabled:cursor-not-allowed disabled:opacity-40 disabled:saturate-50 ${palette[variant]}`}
+      className={`flex min-w-0 flex-1 basis-0 flex-col items-center justify-center rounded-xl border px-2 py-1.5 text-[13px] font-bold uppercase tracking-wide shadow-md transition disabled:cursor-not-allowed disabled:opacity-40 disabled:saturate-50 sm:min-w-[88px] sm:flex-none sm:basis-auto sm:px-4 sm:py-2 sm:text-sm ${palette[variant]}`}
     >
       <span>{label}</span>
       {sublabel ? (
-        <span className="mt-0.5 text-[11px] font-semibold tabular-nums opacity-90">
+        <span className="mt-0.5 text-[10px] font-semibold tabular-nums opacity-90 sm:text-[11px]">
           {sublabel}
         </span>
       ) : null}
@@ -724,36 +730,43 @@ export function GameClient({
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 pb-44">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-widest text-emerald-400/90">
+    <div className="mx-auto flex max-w-6xl flex-col gap-3 px-3 pb-[14rem] pt-3 sm:gap-6 sm:px-4 sm:pb-44 sm:pt-8">
+      <header className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] uppercase tracking-widest text-emerald-400/90 sm:text-xs">
             {observe ? "Observer" : "Table"}
           </p>
-          <h1 className="text-2xl font-semibold text-white">
+          <h1 className="text-base font-semibold text-white sm:text-2xl">
             Game <span className="text-slate-400">{gameId.slice(0, 8)}…</span>
           </h1>
-          <p className="text-sm text-slate-500">
+          <p className="hidden text-sm text-slate-500 sm:block">
             Socket: {status}
             {wsEndpoint ? (
               <span className="text-slate-600"> ({wsEndpoint})</span>
             ) : null}
             {error ? ` · ${error}` : ""}
           </p>
+          <p className="text-[11px] text-slate-500 sm:hidden">
+            {status}
+            {error ? ` · ${error}` : ""}
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:gap-2">
           {isHost && !observe ? (
             <button
               type="button"
-              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200"
-            onClick={() => setSettingsOpen(true)}
-          >
-            Game settings
-          </button>
+              className="rounded-lg border border-slate-600 px-2.5 py-1.5 text-xs text-slate-200 sm:px-3 sm:py-2 sm:text-sm"
+              onClick={() => setSettingsOpen(true)}
+              title="Game settings"
+            >
+              <span className="hidden sm:inline">Game settings</span>
+              <span aria-hidden className="sm:hidden">⚙︎</span>
+              <span className="sr-only sm:hidden">Game settings</span>
+            </button>
           ) : null}
           <button
             type="button"
-            className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200"
+            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-200 sm:px-3 sm:py-2 sm:text-sm"
             onClick={(e) => {
               void (async () => {
                 await copyPageUrlToClipboard();
@@ -762,11 +775,14 @@ export function GameClient({
                 e.currentTarget.blur();
               })();
             }}
+            title="Copy table link"
           >
-            Copy link
+            <span className="hidden sm:inline">Copy link</span>
+            <span aria-hidden className="sm:hidden">⎘</span>
+            <span className="sr-only sm:hidden">Copy link</span>
           </button>
           {copyHint ? (
-            <span className="text-xs text-emerald-400">{copyHint}</span>
+            <span className="text-[11px] text-emerald-400 sm:text-xs">{copyHint}</span>
           ) : null}
         </div>
       </header>
@@ -810,17 +826,37 @@ export function GameClient({
       ) : null}
 
       {payload ? (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-3 sm:gap-6">
+          {payload.hostSeesAll ? (
+            <div
+              className="rounded-xl border border-amber-500/50 bg-amber-950/40 px-3 py-2 text-[12px] text-amber-100 sm:px-4 sm:py-3 sm:text-sm"
+              role="status"
+            >
+              {/*<strong className="font-semibold text-amber-200">
+                Host godmode active
+              </strong>{" "}
+              {isHost
+                ? "— you can see every player's hole cards while a hand is live."
+                : "— the host can see every player's hole cards while a hand is live."}
+              <span className="ml-1 text-amber-300/80">
+                (Set <code>GANGA_HOST_GODMODE=0</code> on the realtime server to
+                disable.)
+              </span>*/}
+            </div>
+          ) : null}
+
           {!observe ? (
-            <div className="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">
+            <div className="rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-[13px] text-slate-300 sm:px-4 sm:py-3 sm:text-sm">
               {handInProgress ? (
-                <p>
+                <p className="leading-snug">
                   <span className="font-medium text-emerald-300">
                     Hand live
                   </span>
                   {" · "}
-                  Street{" "}
-                  <strong className="text-white">{hand?.street}</strong>, pot{" "}
+                  <span className="hidden sm:inline">Street </span>
+                  <strong className="text-white">{hand?.street}</strong>
+                  <span className="hidden sm:inline">, pot </span>
+                  <span className="sm:hidden"> · pot </span>
                   <strong className="text-white">{hand?.pot ?? 0}</strong>
                   {hand?.toActPlayerId === selfId ? (
                     <span className="text-amber-300"> — your action</span>
@@ -841,20 +877,28 @@ export function GameClient({
                   ) : null}
                 </p>
               ) : (
-                <p>
-                  <span className="text-slate-500">Lobby.</span> Open{" "}
-                  <strong className="text-slate-200">Game settings</strong> for
-                  blinds, antes, timers, and house rules. Auto-start deals when
-                  the host and at least one other approved player are seated with
-                  chips (if enabled).
-                </p>
+                <>
+                  <p className="hidden sm:block">
+                    <span className="text-slate-500">Lobby.</span> Open{" "}
+                    <strong className="text-slate-200">Game settings</strong>{" "}
+                    for blinds, antes, timers, and house rules. Auto-start deals
+                    when the host and at least one other approved player are
+                    seated with chips (if enabled).
+                  </p>
+                  <p className="leading-snug sm:hidden">
+                    <span className="text-slate-500">Lobby.</span>{" "}
+                    {payload.autoStartHand !== false
+                      ? "Auto-start deals when host + 1 are seated."
+                      : "Host taps Deal to start a hand."}
+                  </p>
+                </>
               )}
             </div>
           ) : null}
 
           {!observe && self?.approved ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs">
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 rounded-xl border border-slate-800 bg-slate-900/60 px-2 py-1.5 text-xs sm:gap-2 sm:px-3 sm:py-2">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 {self.seatIndex !== null ? (
                   <>
                     <button
@@ -862,7 +906,7 @@ export function GameClient({
                       onClick={() =>
                         send({ type: "sit_out", away: !self.sittingOut })
                       }
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide ${
+                      className={`rounded-lg border px-2 py-1 text-[11px] font-semibold uppercase tracking-wide sm:px-3 sm:py-1.5 sm:text-xs ${
                         self.sittingOut
                           ? "border-emerald-500/60 bg-emerald-700/30 text-emerald-200 hover:bg-emerald-700/50"
                           : "border-amber-500/40 bg-amber-900/20 text-amber-200 hover:bg-amber-900/40"
@@ -878,35 +922,42 @@ export function GameClient({
                     <button
                       type="button"
                       onClick={() => send({ type: "leave_seat" })}
-                      className="rounded-lg border border-slate-600 bg-slate-800/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-700/70"
+                      className="rounded-lg border border-slate-600 bg-slate-800/60 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-700/70 sm:px-3 sm:py-1.5 sm:text-xs"
                       title="Stand up but stay in the room"
                     >
-                      Leave seat
+                      <span className="hidden sm:inline">Leave seat</span>
+                      <span className="sm:hidden">Leave</span>
                     </button>
                   </>
                 ) : (
                   <span className="text-slate-400">
-                    Pick a seat at the table to play.
+                    Pick a seat to play.
                   </span>
                 )}
                 {self.chips === 0 ? (
-                  <span className="rounded bg-rose-900/40 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-rose-200">
+                  <span className="rounded bg-rose-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-200 sm:px-2 sm:py-1 sm:text-[11px]">
                     {isHost
-                      ? "Out of chips — top yourself up below"
-                      : "Out of chips — ask host to top up"}
+                      ? "Out — top yourself up"
+                      : "Out — ask host"}
                   </span>
                 ) : null}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 <button
                   type="button"
                   onClick={() => setSoundOn((v) => !v)}
-                  className="rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700"
+                  className="rounded-lg border border-slate-700 bg-slate-800/60 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-700 sm:px-3 sm:py-1.5 sm:text-xs"
                   title="Plays a tone when it's your turn"
+                  aria-label={soundOn ? "Sound on" : "Sound off"}
                 >
-                  {soundOn ? "Sound · on" : "Sound · off"}
+                  <span className="hidden sm:inline">
+                    {soundOn ? "Sound · on" : "Sound · off"}
+                  </span>
+                  <span aria-hidden className="sm:hidden">
+                    {soundOn ? "🔊" : "🔇"}
+                  </span>
                 </button>
-                <label className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs text-slate-200">
+                <label className="hidden items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs text-slate-200 sm:flex">
                   <input
                     type="checkbox"
                     className="accent-amber-400"
@@ -917,8 +968,22 @@ export function GameClient({
                 </label>
                 <button
                   type="button"
+                  onClick={() => setConfirmFold((v) => !v)}
+                  className={`rounded-lg border px-2 py-1 text-[11px] sm:hidden ${
+                    confirmFold
+                      ? "border-amber-500/60 bg-amber-900/30 text-amber-100"
+                      : "border-slate-700 bg-slate-800/60 text-slate-300"
+                  }`}
+                  title="Tap fold twice to confirm"
+                  aria-label="Confirm fold"
+                  aria-pressed={confirmFold}
+                >
+                  Fold ✓
+                </button>
+                <button
+                  type="button"
                   onClick={() => setLogOpen((v) => !v)}
-                  className="rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700"
+                  className="rounded-lg border border-slate-700 bg-slate-800/60 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-700 sm:px-3 sm:py-1.5 sm:text-xs"
                 >
                   {logOpen ? "Hide log" : `Log (${actionLog.length})`}
                 </button>
@@ -941,7 +1006,7 @@ export function GameClient({
           />
 
           {logOpen ? (
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-xs">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3 text-xs sm:p-4">
               <div className="mb-2 flex items-center justify-between">
                 <h2 className="text-sm font-medium text-slate-200">
                   Hand log
@@ -964,8 +1029,8 @@ export function GameClient({
             </section>
           ) : null}
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+          <div className="grid gap-3 sm:gap-6 lg:grid-cols-2">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3 sm:p-5">
               <h2 className="text-sm font-medium text-slate-200">
                 Table roster
               </h2>
@@ -1012,7 +1077,7 @@ export function GameClient({
               </ul>
             </section>
 
-            <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
+            <section className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-3 sm:space-y-4 sm:p-6">
               <h2 className="text-sm font-medium text-slate-200">
                 Host & seats
               </h2>
@@ -1287,7 +1352,7 @@ export function GameClient({
         </div>
 
           {(observe || status === "live") && (
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-3 sm:p-5">
               <h2 className="text-sm font-medium text-slate-200">Table chat</h2>
               <p className="mt-1 text-xs text-slate-500">
                 Shown to everyone connected to this game. Observers can read
@@ -1665,23 +1730,25 @@ export function GameClient({
       ) : null}
 
       {payload && !observe && self?.approved && self.seatIndex !== null ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-3">
-          <div className="pointer-events-auto w-full max-w-3xl rounded-2xl border border-slate-700 bg-slate-950/95 p-3 shadow-2xl backdrop-blur">
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-2 pb-safe-3 sm:px-3">
+          <div className="pointer-events-auto w-full max-w-3xl rounded-2xl border border-slate-700 bg-slate-950/95 p-2 shadow-2xl backdrop-blur sm:p-3">
             {handInProgress && self.inHand ? (
               <>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-wide">
+                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1.5 text-[10px] uppercase tracking-wide sm:mb-2 sm:gap-2 sm:text-[11px]">
                   <span className="text-slate-400">
                     Pot{" "}
                     <span className="text-slate-100 tabular-nums">
                       {potNow}
                     </span>
                     {" · "}
-                    To call{" "}
+                    <span className="hidden sm:inline">To call</span>
+                    <span className="sm:hidden">Call</span>{" "}
                     <span className="text-slate-100 tabular-nums">
                       {toCall}
                     </span>
                     {" · "}
-                    My stack{" "}
+                    <span className="hidden sm:inline">My stack</span>
+                    <span className="sm:hidden">Stack</span>{" "}
                     <span className="text-slate-100 tabular-nums">
                       {myChips}
                     </span>
@@ -1706,8 +1773,8 @@ export function GameClient({
                 </div>
 
                 {canAct && canRaise ? (
-                  <div className="mb-2 flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/70 p-2">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="mb-1.5 flex flex-col gap-1.5 rounded-xl border border-slate-800 bg-slate-900/70 p-1.5 sm:mb-2 sm:gap-2 sm:p-2">
+                    <div className="flex items-center gap-2">
                       <input
                         type="range"
                         min={effectiveMinRaise}
@@ -1721,10 +1788,11 @@ export function GameClient({
                         onChange={(e) =>
                           setRaiseSlider(Number(e.target.value))
                         }
-                        className="h-2 flex-1 accent-amber-400"
+                        className="h-2 min-w-0 flex-1 accent-amber-400"
                       />
                       <input
                         type="number"
+                        inputMode="numeric"
                         min={effectiveMinRaise}
                         max={allInTotal}
                         value={clamp(
@@ -1735,27 +1803,27 @@ export function GameClient({
                         onChange={(e) =>
                           setRaiseSlider(Number(e.target.value))
                         }
-                        className="w-24 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-right text-sm text-white tabular-nums"
+                        className="w-20 rounded-md border border-slate-700 bg-slate-950 px-1.5 py-1 text-right text-xs text-white tabular-nums sm:w-24 sm:px-2 sm:text-sm"
                       />
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex gap-1 sm:flex-wrap sm:gap-1.5">
                       <button
                         type="button"
-                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800"
+                        className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:flex-none sm:px-2 sm:text-[11px]"
                         onClick={() => setRaiseSlider(effectiveMinRaise)}
                       >
                         Min
                       </button>
                       <button
                         type="button"
-                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800"
+                        className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:flex-none sm:px-2 sm:text-[11px]"
                         onClick={() => setRaiseSlider(chipsForFraction(0.5))}
                       >
                         ½ Pot
                       </button>
                       <button
                         type="button"
-                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800"
+                        className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:flex-none sm:px-2 sm:text-[11px]"
                         onClick={() =>
                           setRaiseSlider(chipsForFraction(2 / 3))
                         }
@@ -1764,23 +1832,26 @@ export function GameClient({
                       </button>
                       <button
                         type="button"
-                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800"
+                        className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:flex-none sm:px-2 sm:text-[11px]"
                         onClick={() => setRaiseSlider(chipsForFraction(1))}
                       >
                         Pot
                       </button>
                       <button
                         type="button"
-                        className="rounded-md border border-amber-500/60 bg-amber-700/30 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-700/50"
+                        className="flex-1 rounded-md border border-amber-500/60 bg-amber-700/30 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-700/50 sm:flex-none sm:px-2 sm:text-[11px]"
                         onClick={() => setRaiseSlider(allInTotal)}
                       >
-                        All-in {allInTotal}
+                        <span className="hidden sm:inline">
+                          All-in {allInTotal}
+                        </span>
+                        <span className="sm:hidden">All {allInTotal}</span>
                       </button>
                     </div>
                   </div>
                 ) : null}
 
-                <div className="flex flex-wrap items-stretch justify-center gap-2">
+                <div className="flex items-stretch justify-center gap-1.5 sm:flex-wrap sm:gap-2">
                   <ActionButton
                     label={pendingFoldConfirm ? "Tap again" : "Fold"}
                     variant="fold"
@@ -1828,42 +1899,45 @@ export function GameClient({
                 </div>
 
                 {!canAct ? (
-                  <div className="mt-2 flex flex-wrap items-center justify-center gap-2 border-t border-slate-800 pt-2 text-[11px]">
-                    <span className="text-slate-500">Pre-action:</span>
+                  <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1 border-t border-slate-800 pt-1.5 text-[10px] sm:mt-2 sm:gap-2 sm:pt-2 sm:text-[11px]">
+                    <span className="hidden text-slate-500 sm:inline">
+                      Pre-action:
+                    </span>
                     {(
                       [
-                        ["off", "None"],
-                        ["check_fold", "Check / Fold"],
-                        ["check_any", "Check (if free)"],
-                        ["call_any", "Call any"],
+                        ["off", "None", "None"],
+                        ["check_fold", "Check / Fold", "Ck/Fd"],
+                        ["check_any", "Check (if free)", "Check"],
+                        ["call_any", "Call any", "Call"],
                       ] as const
-                    ).map(([val, lab]) => (
+                    ).map(([val, lab, short]) => (
                       <button
                         key={val}
                         type="button"
                         onClick={() => setPreAction(val)}
-                        className={`rounded-md border px-2 py-1 font-semibold uppercase tracking-wide ${
+                        className={`rounded-md border px-1.5 py-0.5 font-semibold uppercase tracking-wide sm:px-2 sm:py-1 ${
                           preAction === val
                             ? "border-amber-400 bg-amber-700/30 text-amber-100"
                             : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800"
                         }`}
                       >
-                        {lab}
+                        <span className="hidden sm:inline">{lab}</span>
+                        <span className="sm:hidden">{short}</span>
                       </button>
                     ))}
                   </div>
                 ) : null}
               </>
             ) : (
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 sm:text-xs">
                 <span>
                   {self.sittingOut
-                    ? "You are sitting out — tap I'm back to rejoin."
+                    ? "Sitting out — tap I'm back to rejoin."
                     : handInProgress
-                      ? "You aren't in this hand — you'll be dealt in next."
+                      ? "Not in this hand — dealt in next."
                       : payload.autoStartHand !== false
-                        ? "Waiting for the next hand to start automatically."
-                        : "Waiting for the host to start the next hand."}
+                        ? "Waiting for next hand…"
+                        : "Waiting for host to deal."}
                 </span>
                 {isHost && !handInProgress ? (
                   <button
