@@ -204,11 +204,11 @@ function ActionButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`flex min-w-0 flex-1 basis-0 flex-col items-center justify-center rounded-xl border px-2 py-1.5 text-[13px] font-bold uppercase tracking-wide shadow-md transition disabled:cursor-not-allowed disabled:opacity-40 disabled:saturate-50 sm:min-w-[88px] sm:flex-none sm:basis-auto sm:px-4 sm:py-2 sm:text-sm ${palette[variant]}`}
+      className={`flex min-h-[48px] min-w-[5rem] flex-none basis-auto flex-col items-center justify-center rounded-xl border px-2.5 py-2 text-sm font-bold uppercase tracking-wide shadow-md transition disabled:cursor-not-allowed disabled:opacity-40 disabled:saturate-50 sm:min-h-0 sm:min-w-[88px] sm:flex-none sm:basis-auto sm:px-4 sm:py-2 sm:text-sm ${palette[variant]}`}
     >
       <span>{label}</span>
       {sublabel ? (
-        <span className="mt-0.5 text-[10px] font-semibold tabular-nums opacity-90 sm:text-[11px]">
+        <span className="mt-0.5 max-w-[5.5rem] truncate text-[10px] font-semibold tabular-nums opacity-90 sm:max-w-none sm:text-[11px]">
           {sublabel}
         </span>
       ) : null}
@@ -730,7 +730,7 @@ export function GameClient({
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-3 px-3 pb-[14rem] pt-3 sm:gap-6 sm:px-4 sm:pb-44 sm:pt-8">
+    <div className="mx-auto flex max-w-6xl flex-col gap-3 px-3 pb-[min(42svh,15.5rem)] pt-3 sm:gap-6 sm:px-4 sm:pb-44 sm:pt-8">
       <header className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] uppercase tracking-widest text-emerald-400/90 sm:text-xs">
@@ -751,22 +751,24 @@ export function GameClient({
             {error ? ` · ${error}` : ""}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-2">
           {isHost && !observe ? (
             <button
               type="button"
-              className="rounded-lg border border-slate-600 px-2.5 py-1.5 text-xs text-slate-200 sm:px-3 sm:py-2 sm:text-sm"
+              className="flex min-h-11 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-lg border border-slate-600 px-3 py-2.5 text-sm font-semibold leading-none text-slate-100 sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-2 sm:text-sm sm:font-normal"
               onClick={() => setSettingsOpen(true)}
               title="Game settings"
             >
+              <span className="text-lg leading-none sm:hidden" aria-hidden>
+                ⚙︎
+              </span>
+              <span className="sm:hidden">Settings</span>
               <span className="hidden sm:inline">Game settings</span>
-              <span aria-hidden className="sm:hidden">⚙︎</span>
-              <span className="sr-only sm:hidden">Game settings</span>
             </button>
           ) : null}
           <button
             type="button"
-            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-200 sm:px-3 sm:py-2 sm:text-sm"
+            className="flex min-h-11 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2.5 text-sm font-semibold leading-none text-slate-100 sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-2 sm:text-sm sm:font-normal"
             onClick={(e) => {
               void (async () => {
                 await copyPageUrlToClipboard();
@@ -777,12 +779,16 @@ export function GameClient({
             }}
             title="Copy table link"
           >
+            <span className="text-lg leading-none sm:hidden" aria-hidden>
+              ⎘
+            </span>
+            <span className="sm:hidden">Copy</span>
             <span className="hidden sm:inline">Copy link</span>
-            <span aria-hidden className="sm:hidden">⎘</span>
-            <span className="sr-only sm:hidden">Copy link</span>
           </button>
           {copyHint ? (
-            <span className="text-[11px] text-emerald-400 sm:text-xs">{copyHint}</span>
+            <span className="w-full text-xs font-medium text-emerald-400 sm:w-auto sm:text-xs">
+              {copyHint}
+            </span>
           ) : null}
         </div>
       </header>
@@ -1715,127 +1721,11 @@ export function GameClient({
 
       {payload && !observe && self?.approved && self.seatIndex !== null ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-2 pb-safe-3 sm:px-3">
-          <div className="pointer-events-auto w-full max-w-3xl rounded-2xl border border-slate-700 bg-slate-950/95 p-2 shadow-2xl backdrop-blur sm:p-3">
+          <div className="pointer-events-auto w-full max-w-3xl rounded-2xl border border-slate-700 bg-slate-950/95 p-2 shadow-2xl backdrop-blur sm:min-h-0 sm:p-3">
             {handInProgress && self.inHand ? (
-              <>
-                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1.5 text-[10px] uppercase tracking-wide sm:mb-2 sm:gap-2 sm:text-[11px]">
-                  <span className="text-slate-400">
-                    Pot{" "}
-                    <span className="text-slate-100 tabular-nums">
-                      {potNow}
-                    </span>
-                    {" · "}
-                    <span className="hidden sm:inline">To call</span>
-                    <span className="sm:hidden">Call</span>{" "}
-                    <span className="text-slate-100 tabular-nums">
-                      {toCall}
-                    </span>
-                    {" · "}
-                    <span className="hidden sm:inline">My stack</span>
-                    <span className="sm:hidden">Stack</span>{" "}
-                    <span className="text-slate-100 tabular-nums">
-                      {myChips}
-                    </span>
-                  </span>
-                  <span
-                    className={`tabular-nums ${
-                      canAct ? "text-amber-300" : "text-slate-500"
-                    }`}
-                  >
-                    {canAct
-                      ? `Your turn${
-                          actionClockSec != null ? ` · ${actionClockSec}s` : ""
-                        }`
-                      : `Waiting for ${
-                          payload.players.find(
-                            (p) => p.playerId === hand?.toActPlayerId,
-                          )?.username ?? "…"
-                        }${
-                          actionClockSec != null ? ` · ${actionClockSec}s` : ""
-                        }`}
-                  </span>
-                </div>
-
-                {canAct && canRaise ? (
-                  <div className="mb-1.5 flex flex-col gap-1.5 rounded-xl border border-slate-800 bg-slate-900/70 p-1.5 sm:mb-2 sm:gap-2 sm:p-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={effectiveMinRaise}
-                        max={allInTotal}
-                        step={Math.max(1, payload.smallBlind)}
-                        value={clamp(
-                          raiseSlider || effectiveMinRaise,
-                          effectiveMinRaise,
-                          allInTotal,
-                        )}
-                        onChange={(e) =>
-                          setRaiseSlider(Number(e.target.value))
-                        }
-                        className="h-2 min-w-0 flex-1 accent-amber-400"
-                      />
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        min={effectiveMinRaise}
-                        max={allInTotal}
-                        value={clamp(
-                          raiseSlider || effectiveMinRaise,
-                          effectiveMinRaise,
-                          allInTotal,
-                        )}
-                        onChange={(e) =>
-                          setRaiseSlider(Number(e.target.value))
-                        }
-                        className="w-20 rounded-md border border-slate-700 bg-slate-950 px-1.5 py-1 text-right text-xs text-white tabular-nums sm:w-24 sm:px-2 sm:text-sm"
-                      />
-                    </div>
-                    <div className="flex gap-1 sm:flex-wrap sm:gap-1.5">
-                      <button
-                        type="button"
-                        className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:flex-none sm:px-2 sm:text-[11px]"
-                        onClick={() => setRaiseSlider(effectiveMinRaise)}
-                      >
-                        Min
-                      </button>
-                      <button
-                        type="button"
-                        className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:flex-none sm:px-2 sm:text-[11px]"
-                        onClick={() => setRaiseSlider(chipsForFraction(0.5))}
-                      >
-                        ½ Pot
-                      </button>
-                      <button
-                        type="button"
-                        className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:flex-none sm:px-2 sm:text-[11px]"
-                        onClick={() =>
-                          setRaiseSlider(chipsForFraction(2 / 3))
-                        }
-                      >
-                        ⅔ Pot
-                      </button>
-                      <button
-                        type="button"
-                        className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:flex-none sm:px-2 sm:text-[11px]"
-                        onClick={() => setRaiseSlider(chipsForFraction(1))}
-                      >
-                        Pot
-                      </button>
-                      <button
-                        type="button"
-                        className="flex-1 rounded-md border border-amber-500/60 bg-amber-700/30 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-700/50 sm:flex-none sm:px-2 sm:text-[11px]"
-                        onClick={() => setRaiseSlider(allInTotal)}
-                      >
-                        <span className="hidden sm:inline">
-                          All-in {allInTotal}
-                        </span>
-                        <span className="sm:hidden">All {allInTotal}</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="flex items-stretch justify-center gap-1.5 sm:flex-wrap sm:gap-2">
+              <div className="flex flex-col gap-2 sm:gap-3">
+                {/* Mobile: primary actions at top (stable thumb zone); desktop: stats first */}
+                <div className="order-1 flex touch-pan-x flex-nowrap items-stretch justify-start gap-2 overflow-x-auto overscroll-x-contain [-ms-scrollbar-style:none] [scrollbar-width:none] sm:order-3 sm:flex-wrap sm:justify-center sm:overflow-visible [&::-webkit-scrollbar]:hidden">
                   <ActionButton
                     label={pendingFoldConfirm ? "Tap again" : "Fold"}
                     variant="fold"
@@ -1882,9 +1772,126 @@ export function GameClient({
                   />
                 </div>
 
+                <div className="order-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] uppercase tracking-wide text-slate-400 sm:order-1 sm:mb-0 sm:text-[11px]">
+                  <span className="min-w-0 leading-snug">
+                    Pot{" "}
+                    <span className="text-slate-100 tabular-nums">
+                      {potNow}
+                    </span>
+                    {" · "}
+                    <span className="hidden sm:inline">To call</span>
+                    <span className="sm:hidden">Call</span>{" "}
+                    <span className="text-slate-100 tabular-nums">
+                      {toCall}
+                    </span>
+                    {" · "}
+                    <span className="hidden sm:inline">My stack</span>
+                    <span className="sm:hidden">Stack</span>{" "}
+                    <span className="text-slate-100 tabular-nums">
+                      {myChips}
+                    </span>
+                  </span>
+                  <span
+                    className={`max-w-[55%] shrink-0 text-right text-[11px] normal-case leading-snug tabular-nums sm:max-w-none ${
+                      canAct ? "text-amber-300" : "text-slate-500"
+                    }`}
+                  >
+                    {canAct
+                      ? `Your turn${
+                          actionClockSec != null ? ` · ${actionClockSec}s` : ""
+                        }`
+                      : `Waiting for ${
+                          payload.players.find(
+                            (p) => p.playerId === hand?.toActPlayerId,
+                          )?.username ?? "…"
+                        }${
+                          actionClockSec != null ? ` · ${actionClockSec}s` : ""
+                        }`}
+                  </span>
+                </div>
+
+                {canAct && canRaise ? (
+                  <div className="order-3 flex min-h-0 flex-col gap-1.5 rounded-xl border border-slate-800 bg-slate-900/70 p-2 sm:order-2 sm:mb-0 sm:gap-2 sm:p-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={effectiveMinRaise}
+                        max={allInTotal}
+                        step={Math.max(1, payload.smallBlind)}
+                        value={clamp(
+                          raiseSlider || effectiveMinRaise,
+                          effectiveMinRaise,
+                          allInTotal,
+                        )}
+                        onChange={(e) =>
+                          setRaiseSlider(Number(e.target.value))
+                        }
+                        className="h-3 min-w-0 flex-1 touch-manipulation accent-amber-400 sm:h-2"
+                      />
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={effectiveMinRaise}
+                        max={allInTotal}
+                        value={clamp(
+                          raiseSlider || effectiveMinRaise,
+                          effectiveMinRaise,
+                          allInTotal,
+                        )}
+                        onChange={(e) =>
+                          setRaiseSlider(Number(e.target.value))
+                        }
+                        className="min-h-10 w-[4.5rem] rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-right text-sm text-white tabular-nums sm:min-h-0 sm:w-24 sm:px-2 sm:text-sm"
+                      />
+                    </div>
+                    <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-scrollbar-style:none] [scrollbar-width:none] sm:flex-wrap sm:gap-1.5 sm:overflow-visible [&::-webkit-scrollbar]:hidden">
+                      <button
+                        type="button"
+                        className="min-h-9 shrink-0 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:min-h-0 sm:flex-none sm:px-2 sm:py-1 sm:text-[11px]"
+                        onClick={() => setRaiseSlider(effectiveMinRaise)}
+                      >
+                        Min
+                      </button>
+                      <button
+                        type="button"
+                        className="min-h-9 shrink-0 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:min-h-0 sm:flex-none sm:px-2 sm:py-1 sm:text-[11px]"
+                        onClick={() => setRaiseSlider(chipsForFraction(0.5))}
+                      >
+                        ½ Pot
+                      </button>
+                      <button
+                        type="button"
+                        className="min-h-9 shrink-0 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:min-h-0 sm:flex-none sm:px-2 sm:py-1 sm:text-[11px]"
+                        onClick={() =>
+                          setRaiseSlider(chipsForFraction(2 / 3))
+                        }
+                      >
+                        ⅔ Pot
+                      </button>
+                      <button
+                        type="button"
+                        className="min-h-9 shrink-0 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-slate-800 sm:min-h-0 sm:flex-none sm:px-2 sm:py-1 sm:text-[11px]"
+                        onClick={() => setRaiseSlider(chipsForFraction(1))}
+                      >
+                        Pot
+                      </button>
+                      <button
+                        type="button"
+                        className="min-h-9 shrink-0 rounded-md border border-amber-500/60 bg-amber-700/30 px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-700/50 sm:min-h-0 sm:flex-none sm:px-2 sm:py-1 sm:text-[11px]"
+                        onClick={() => setRaiseSlider(allInTotal)}
+                      >
+                        <span className="hidden sm:inline">
+                          All-in {allInTotal}
+                        </span>
+                        <span className="sm:hidden">All {allInTotal}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
                 {!canAct ? (
-                  <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1 border-t border-slate-800 pt-1.5 text-[10px] sm:mt-2 sm:gap-2 sm:pt-2 sm:text-[11px]">
-                    <span className="hidden text-slate-500 sm:inline">
+                  <div className="order-4 flex flex-wrap items-center justify-center gap-1.5 border-t border-slate-800 pt-2 text-[11px] sm:order-4 sm:gap-2 sm:pt-2 sm:text-[11px]">
+                    <span className="hidden w-full text-center text-slate-500 sm:inline sm:w-auto">
                       Pre-action:
                     </span>
                     {(
@@ -1899,7 +1906,7 @@ export function GameClient({
                         key={val}
                         type="button"
                         onClick={() => setPreAction(val)}
-                        className={`rounded-md border px-1.5 py-0.5 font-semibold uppercase tracking-wide sm:px-2 sm:py-1 ${
+                        className={`min-h-9 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide sm:min-h-0 sm:px-2 sm:py-1 ${
                           preAction === val
                             ? "border-amber-400 bg-amber-700/30 text-amber-100"
                             : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800"
@@ -1911,10 +1918,10 @@ export function GameClient({
                     ))}
                   </div>
                 ) : null}
-              </>
+              </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 sm:text-xs">
-                <span>
+              <div className="flex flex-col gap-3 text-sm text-slate-300 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 sm:text-xs">
+                <span className="text-center leading-snug sm:text-left">
                   {self.sittingOut
                     ? "Sitting out — tap I'm back to rejoin."
                     : handInProgress
@@ -1926,10 +1933,10 @@ export function GameClient({
                 {isHost && !handInProgress ? (
                   <button
                     type="button"
-                    className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400"
+                    className="min-h-12 w-full shrink-0 rounded-xl bg-amber-500 px-4 py-3 text-base font-bold text-slate-950 shadow-lg shadow-amber-900/30 hover:bg-amber-400 active:bg-amber-500 sm:min-h-0 sm:w-auto sm:rounded-lg sm:px-3 sm:py-1.5 sm:text-xs sm:font-semibold sm:shadow-none"
                     onClick={() => send({ type: "start_hand" })}
                   >
-                    Deal now
+                    Deal next hand
                   </button>
                 ) : null}
               </div>
