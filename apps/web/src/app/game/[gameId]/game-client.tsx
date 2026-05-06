@@ -556,6 +556,23 @@ export function GameClient({
   );
 
   const handInProgress = Boolean(hand && !hand.handComplete);
+  /** When the dock shows "waiting" instead of in-hand controls (see server: inHand = still contesting pot). */
+  const dockWaitingCaption = useMemo(() => {
+    if (!self) return "";
+    if (self.sittingOut) {
+      return "Sitting out — tap I'm back to rejoin.";
+    }
+    if (handInProgress && !self.inHand) {
+      if (self.holeCards?.length === 2) {
+        return "You folded — waiting for this hand to finish.";
+      }
+      return "Not in this hand — you'll join on the next deal.";
+    }
+    if (payload?.autoStartHand !== false) {
+      return "Waiting for next hand…";
+    }
+    return "Waiting for host to deal.";
+  }, [self, handInProgress, payload?.autoStartHand]);
   const hostUsername =
     payload?.players.find((p) => p.isHost)?.username ?? "Host";
 
@@ -1922,13 +1939,7 @@ export function GameClient({
             ) : (
               <div className="flex flex-col gap-3 text-sm text-slate-300 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 sm:text-xs">
                 <span className="text-center leading-snug sm:text-left">
-                  {self.sittingOut
-                    ? "Sitting out — tap I'm back to rejoin."
-                    : handInProgress
-                      ? "Not in this hand — dealt in next."
-                      : payload.autoStartHand !== false
-                        ? "Waiting for next hand…"
-                        : "Waiting for host to deal."}
+                  {dockWaitingCaption}
                 </span>
                 {isHost && !handInProgress ? (
                   <button
