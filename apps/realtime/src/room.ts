@@ -689,6 +689,14 @@ export class Room {
       totalCommittedHand: 0,
       allIn: false,
     }));
+    const seatSet = new Set<number>();
+    for (const row of hp) {
+      const si = Number(row.seatIndex);
+      if (seatSet.has(si)) {
+        throw new Error("duplicate_seat");
+      }
+      seatSet.add(si);
+    }
     this.activeHand = new PokerHand(
       hp,
       btn,
@@ -699,11 +707,11 @@ export class Room {
     void this.audit(hostId, "hand_start", { buttonSeat: btn });
   }
 
-  applyPokerAction(
+  async applyPokerAction(
     playerId: string,
     action: "fold" | "check" | "call" | "raise",
     raiseTo?: number,
-  ): void {
+  ): Promise<void> {
     if (!this.activeHand || this.activeHand.handComplete) {
       throw new Error("no_hand");
     }
@@ -715,7 +723,7 @@ export class Room {
       this.activeHand.raise(playerId, raiseTo);
     }
     if (this.activeHand.handComplete) {
-      void this.finalizeHand();
+      await this.finalizeHand();
     }
   }
 

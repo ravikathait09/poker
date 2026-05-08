@@ -128,6 +128,64 @@ function seatPosition(seatIndex: number): { left: string; top: string } {
   return { left: `${x}%`, top: `${y}%` };
 }
 
+const STREET_KEYS = ["preflop", "flop", "turn", "river"] as const;
+type StreetKey = (typeof STREET_KEYS)[number];
+
+const STREET_LABEL: Record<StreetKey, string> = {
+  preflop: "Preflop",
+  flop: "Flop",
+  turn: "Turn",
+  river: "River",
+};
+
+function inferStreet(h: TableHand | null): StreetKey | null {
+  if (!h || h.handComplete) return null;
+  const raw = h.street?.toLowerCase();
+  if (
+    raw === "preflop" ||
+    raw === "flop" ||
+    raw === "turn" ||
+    raw === "river"
+  ) {
+    return raw;
+  }
+  const n = h.board?.length ?? 0;
+  if (n >= 5) return "river";
+  if (n === 4) return "turn";
+  if (n >= 3) return "flop";
+  return "preflop";
+}
+
+function StreetProgressRail({ street }: { street: StreetKey }) {
+  const cur = STREET_KEYS.indexOf(street);
+  return (
+    <div
+      className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5"
+      role="status"
+      aria-label={`Betting round: ${STREET_LABEL[street]}`}
+    >
+      {STREET_KEYS.map((key, i) => {
+        const active = i === cur;
+        const past = cur > i;
+        return (
+          <span
+            key={key}
+            className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide sm:px-2.5 sm:text-[10px] ${
+              active
+                ? "bg-amber-400/95 text-slate-900 shadow ring-2 ring-amber-200/80"
+                : past
+                  ? "bg-black/25 text-emerald-100/65 ring-1 ring-white/10"
+                  : "bg-black/15 text-emerald-100/40"
+            }`}
+          >
+            {STREET_LABEL[key]}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PokerTable({
   players,
   hand,
@@ -155,6 +213,7 @@ export function PokerTable({
   }
 
   const handLive = Boolean(hand && !hand.handComplete);
+  const activeStreet = inferStreet(hand);
   const board = hand?.board ?? [];
   const pot = hand?.pot ?? 0;
   const seatBetMap = new Map<number, number>();
@@ -187,11 +246,15 @@ export function PokerTable({
             </div>
           </div>
 
+          {handLive && activeStreet ? (
+            <StreetProgressRail street={activeStreet} />
+          ) : null}
+
           {handLive ? (
             <div className="flex min-h-10 flex-wrap items-center justify-center gap-1 sm:min-h-12 sm:gap-1.5">
               {board.length === 0 ? (
-                <span className="rounded-full bg-black/25 px-2.5 py-0.5 text-[10px] text-emerald-100/70 sm:px-3 sm:py-1 sm:text-xs">
-                  Preflop — flop next
+                <span className="rounded-full bg-black/20 px-2.5 py-0.5 text-[10px] text-emerald-100/55 sm:px-3 sm:py-1 sm:text-xs">
+                  Community cards after Preflop
                 </span>
               ) : (
                 board.map((c, idx) => (

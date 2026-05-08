@@ -245,7 +245,7 @@ wss.on("connection", (ws) => {
             send(ws, { type: "error", message: "not_seated" });
             return;
           }
-          room.applyPokerAction(
+          await room.applyPokerAction(
             ctx.playerId!,
             msg.action,
             msg.raiseTo,

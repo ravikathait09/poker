@@ -79,7 +79,14 @@ export class PokerHand {
   private currentBet = 0;
   private lastRaiseIncrement: number;
   private actedThisRound = new Set<string>();
+  /** Index in `order` of first actor when a street begins (UTG preflop, SB post-flop, …). */
   private roundStartIdx = 0;
+  /**
+   * Index in `order` where we start scanning for the next player to act.
+   * Must advance clockwise after each action; otherwise action "jumps back" to
+   * street start and only a subset of players keep getting picked.
+   */
+  private actionSearchStart = 0;
   toActPlayerId: string | null = null;
   private lastAction?: { playerId: string; action: string; amount?: number };
   winners: { playerId: string; amount: number; hand?: string }[] | null = null;
@@ -114,10 +121,22 @@ export class PokerHand {
       });
     }
     this.deck = shuffle(freshDeck(), rng);
-    const idxBtn = occ.findIndex((p) => p.seatIndex === buttonSeat);
+    const btnSeat = Number(buttonSeat);
+    const idxBtn = occ.findIndex((p) => Number(p.seatIndex) === btnSeat);
+    if (idxBtn < 0) {
+      throw new Error("bad_button_seat");
+    }
     const n = occ.length;
-    const sbIdx = (idxBtn + 1) % n;
-    const bbIdx = (idxBtn + 2) % n;
+    /** Heads-up: dealer posts SB and acts first preflop; other seat is BB. */
+    let sbIdx: number;
+    let bbIdx: number;
+    if (n === 2) {
+      sbIdx = idxBtn;
+      bbIdx = (idxBtn + 1) % n;
+    } else {
+      sbIdx = (idxBtn + 1) % n;
+      bbIdx = (idxBtn + 2) % n;
+    }
     this.sbSeat = occ[sbIdx]!.seatIndex;
     this.bbSeat = occ[bbIdx]!.seatIndex;
     this.order = occ.map((p) => p.playerId);
@@ -140,6 +159,7 @@ export class PokerHand {
     this.street = "preflop";
     this.currentBet = this.bigBlind;
     this.roundStartIdx = (bbIdx + 1) % n;
+    this.actionSearchStart = this.roundStartIdx;
     this.startBettingRound();
   }
 
@@ -176,10 +196,9 @@ export class PokerHand {
       return;
     }
     const n = this.order.length;
-    let idx = this.roundStartIdx;
-    for (let k = 0; k < n * 3; k++) {
-      const id = this.order[idx % n]!;
-      idx++;
+    const start = ((this.actionSearchStart % n) + n) % n;
+    for (let k = 0; k < n; k++) {
+      const id = this.order[(start + k) % n]!;
       const p = this.players.get(id);
       if (!p || p.folded || p.allIn) continue;
       const toCall = this.currentBet - p.betThisStreet;
@@ -188,6 +207,22 @@ export class PokerHand {
       return;
     }
     this.advanceStreet();
+  }
+
+  /** Clockwise from actor: next index in `order` for an in-hand, not-all-in seat. */
+  private setActionSearchAfter(actorId: string): void {
+    const n = this.order.length;
+    const at = this.order.indexOf(actorId);
+    if (at < 0) return;
+    for (let step = 1; step <= n; step++) {
+      const j = (at + step) % n;
+      const p = this.players.get(this.order[j]!);
+      if (p !== undefined && !p.folded && !p.allIn) {
+        this.actionSearchStart = j;
+        return;
+      }
+    }
+    this.actionSearchStart = (at + 1) % n;
   }
 
   private activeInHand(): HandPlayer[] {
@@ -248,16 +283,37 @@ export class PokerHand {
       this.showdown();
       return;
     }
-    this.roundStartIdx = this.order.findIndex((id) => {
+    const n = this.order.length;
+    const btnSeat = Number(this.buttonSeat);
+    const btnIdx = this.order.findIndex((id) => {
       const p = this.players.get(id);
-      return p !== undefined && !p.folded && !p.allIn;
+      return p !== undefined && Number(p.seatIndex) === btnSeat;
     });
-    if (this.roundStartIdx < 0) {
-      this.roundStartIdx = this.order.findIndex((id) => {
+    let roundStart = -1;
+    if (btnIdx >= 0) {
+      for (let step = 1; step <= n; step++) {
+        const j = (btnIdx + step) % n;
+        const p = this.players.get(this.order[j]!);
+        if (p !== undefined && !p.folded && !p.allIn) {
+          roundStart = j;
+          break;
+        }
+      }
+    }
+    if (roundStart < 0) {
+      roundStart = this.order.findIndex((id) => {
+        const p = this.players.get(id);
+        return p !== undefined && !p.folded && !p.allIn;
+      });
+    }
+    if (roundStart < 0) {
+      roundStart = this.order.findIndex((id) => {
         const p = this.players.get(id);
         return p !== undefined && !p.folded;
       });
     }
+    this.roundStartIdx = roundStart >= 0 ? roundStart : 0;
+    this.actionSearchStart = this.roundStartIdx;
     this.actedThisRound.clear();
     this.startBettingRound();
   }
@@ -279,6 +335,7 @@ export class PokerHand {
     this.lastAction = { playerId, action: "fold" };
     this.actedThisRound.add(playerId);
     this.toActPlayerId = null;
+    this.setActionSearchAfter(playerId);
     if (this.aliveCount() <= 1) {
       this.finishHand();
       return;
@@ -294,6 +351,7 @@ export class PokerHand {
     this.lastAction = { playerId, action: "check" };
     this.actedThisRound.add(playerId);
     this.toActPlayerId = null;
+    this.setActionSearchAfter(playerId);
     this.afterAction();
   }
 
@@ -305,6 +363,7 @@ export class PokerHand {
     this.lastAction = { playerId, action: "call", amount: paid };
     this.actedThisRound.add(playerId);
     this.toActPlayerId = null;
+    this.setActionSearchAfter(playerId);
     this.afterAction();
   }
 
@@ -333,6 +392,8 @@ export class PokerHand {
     this.actedThisRound.clear();
     this.actedThisRound.add(playerId);
     this.toActPlayerId = null;
+    /** Re-open action: first responder is clockwise from the raiser. */
+    this.setActionSearchAfter(playerId);
     this.afterAction();
   }
 
