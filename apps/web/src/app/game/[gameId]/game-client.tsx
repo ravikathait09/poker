@@ -24,6 +24,8 @@ interface PublicPlayer {
 interface HandPayload {
   street?: string;
   board?: string[];
+  secondBoard?: string[];
+  rabbitBoard?: string[];
   pot?: number;
   toActPlayerId?: string | null;
   minRaise?: number;
@@ -36,6 +38,10 @@ interface HandPayload {
   winners?: { playerId: string; amount: number; hand?: string }[] | null;
   turnExpiresAt?: number | null;
   lastAction?: { playerId: string; action: string; amount?: number };
+  runItTwicePending?: boolean;
+  runItTwiceEligible?: string[];
+  runItTwiceVotes?: { playerId: string; yes: boolean }[];
+  runItTwiceExpiresAt?: number | null;
 }
 
 interface GamePayload {
@@ -79,6 +85,8 @@ interface GameRulesPayload {
   utgStraddleAllowed: boolean;
   revealWithNoAction: boolean;
   spectatorsAllowed: boolean;
+  showdownPresentationSeconds: number;
+  dealToSittingOut: boolean;
 }
 
 function SegmentedYesNo({
@@ -315,6 +323,8 @@ export function GameClient({
   const [draftStraddle, setDraftStraddle] = useState(false);
   const [draftReveal, setDraftReveal] = useState(true);
   const [draftSpectators, setDraftSpectators] = useState(true);
+  const [draftPresentation, setDraftPresentation] = useState("3");
+  const [draftDealAway, setDraftDealAway] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [confirmFold, setConfirmFold] = useState(false);
   const [preAction, setPreAction] = useState<PreAction>("off");
@@ -381,14 +391,22 @@ export function GameClient({
     setDraftStraddle(gr?.utgStraddleAllowed === true);
     setDraftReveal(gr?.revealWithNoAction !== false);
     setDraftSpectators(gr?.spectatorsAllowed !== false);
+    setDraftPresentation(String(gr?.showdownPresentationSeconds ?? 3));
+    setDraftDealAway(gr?.dealToSittingOut === true);
   }, [payload, settingsOpen]);
 
   useEffect(() => {
     const h = payload?.hand as {
       handComplete?: boolean;
       turnExpiresAt?: number;
+      runItTwicePending?: boolean;
+      runItTwiceExpiresAt?: number;
     } | null;
-    if (!h || h.handComplete || typeof h.turnExpiresAt !== "number") return;
+    if (!h || h.handComplete) return;
+    const needsClock =
+      typeof h.turnExpiresAt === "number" ||
+      (h.runItTwicePending && typeof h.runItTwiceExpiresAt === "number");
+    if (!needsClock) return;
     const id = window.setInterval(() => setClockTick((n) => n + 1), 500);
     return () => clearInterval(id);
   }, [payload?.hand]);
@@ -551,9 +569,24 @@ export function GameClient({
   const canAct = Boolean(
     hand &&
       !hand.handComplete &&
+      !hand.runItTwicePending &&
       hand.toActPlayerId &&
       hand.toActPlayerId === selfId,
   );
+
+  const canVoteRit = Boolean(
+    hand?.runItTwicePending &&
+      selfId &&
+      (hand.runItTwiceEligible ?? []).includes(selfId) &&
+      !(hand.runItTwiceVotes ?? []).some((v) => v.playerId === selfId),
+  );
+
+  const ritClockSec = useMemo(() => {
+    if (!hand?.runItTwicePending || typeof hand.runItTwiceExpiresAt !== "number") {
+      return null;
+    }
+    return Math.max(0, Math.ceil((hand.runItTwiceExpiresAt - Date.now()) / 1000));
+  }, [hand, clockTick]);
 
   const handInProgress = Boolean(hand && !hand.handComplete);
   /** When the dock shows "waiting" instead of in-hand controls (see server: inHand = still contesting pot). */
@@ -655,7 +688,7 @@ export function GameClient({
 
   useEffect(() => {
     if (!hand?.handComplete || !hand.winners?.length) return;
-    const key = `${(hand.board ?? []).join(",")}-${hand.winners
+    const key = `${(hand.board ?? []).join(",")}-${(hand.rabbitBoard ?? []).join(",")}-${hand.winners
       .map((w) => `${w.playerId}:${w.amount}`)
       .join(",")}`;
     if (lastWinnersKeyRef.current === key) return;
@@ -676,7 +709,26 @@ export function GameClient({
         ].slice(-200),
       );
     }
-  }, [hand?.handComplete, hand?.winners, hand?.board, payload?.players]);
+    const rabbit = hand.rabbitBoard ?? [];
+    if (rabbit.length > 0) {
+      setActionLog((l) =>
+        [
+          ...l,
+          {
+            id: `rabbit-${Date.now()}`,
+            at: Date.now(),
+            text: `— Undealt: ${rabbit.join(" ")}`,
+          },
+        ].slice(-200),
+      );
+    }
+  }, [
+    hand?.handComplete,
+    hand?.winners,
+    hand?.board,
+    hand?.rabbitBoard,
+    payload?.players,
+  ]);
 
   useEffect(() => {
     if (!handInProgress) {
@@ -996,6 +1048,34 @@ export function GameClient({
                 </button>
               </div>
             </div>
+          ) : null}
+
+          {hand?.runItTwicePending && canVoteRit ? (
+            <div className="mb-3 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-amber-700/50 bg-amber-950/40 px-3 py-2">
+              <span className="text-sm text-amber-100">
+                Run it twice?{ritClockSec !== null ? ` (${ritClockSec}s)` : ""}
+              </span>
+              <button
+                type="button"
+                className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white"
+                onClick={() => send({ type: "run_it_twice_vote", yes: true })}
+              >
+                Yes — twice
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-200"
+                onClick={() => send({ type: "run_it_twice_vote", yes: false })}
+              >
+                No — once
+              </button>
+            </div>
+          ) : null}
+          {hand?.runItTwicePending && !canVoteRit ? (
+            <p className="mb-3 text-center text-xs text-amber-100/80">
+              Waiting for run-it-twice votes
+              {ritClockSec !== null ? ` (${ritClockSec}s)` : ""}…
+            </p>
           ) : null}
 
           <PokerTable
@@ -1574,8 +1654,7 @@ export function GameClient({
                       Gameplay rules
                     </h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      Stored on the server. Items without live engine support are
-                      kept for your room config and future releases.
+                      House rules applied by the live table engine.
                     </p>
                     <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/40 px-2">
                       <SegmentedYesNo
@@ -1588,7 +1667,7 @@ export function GameClient({
                         label="Rabbit hunting (show undealt cards)?"
                         value={draftRabbit}
                         onChange={setDraftRabbit}
-                        hint="Not enforced in-client yet."
+                        hint="After a fold-win, shows the remaining board cards that would have come out."
                       />
                       <div className="flex flex-col gap-1 border-b border-slate-800/80 py-3">
                         <span className="text-sm text-slate-300">
@@ -1617,7 +1696,8 @@ export function GameClient({
                           ))}
                         </div>
                         <p className="text-xs text-slate-500">
-                          Not enforced in the engine yet.
+                          When all-in before river: ALWAYS runs two boards;
+                          ASK needs unanimous yes (15s, else one board).
                         </p>
                       </div>
                       <SegmentedYesNo
@@ -1630,7 +1710,13 @@ export function GameClient({
                         label="Reveal all when no more action?"
                         value={draftReveal}
                         onChange={setDraftReveal}
-                        hint="House rule flag; showdown flow may evolve."
+                        hint="Shows contesting hole cards to the table at showdown."
+                      />
+                      <SegmentedYesNo
+                        label="Deal hands to away players?"
+                        value={draftDealAway}
+                        onChange={setDraftDealAway}
+                        hint="Away seats still get cards and blinds; they auto check/fold quickly."
                       />
                       <SegmentedYesNo
                         label="Spectators allowed?"
@@ -1664,6 +1750,23 @@ export function GameClient({
                           fold so action passes to the next seat.
                         </span>
                       </label>
+                      <label className="block text-sm">
+                        <span className="text-slate-400">
+                          Showdown presentation (seconds)
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white"
+                          value={draftPresentation}
+                          onChange={(e) => setDraftPresentation(e.target.value)}
+                        />
+                        <span className="mt-1 block text-xs text-slate-500">
+                          How long winners, boards, and undealt cards stay on the
+                          felt before auto-start deals the next hand.
+                        </span>
+                      </label>
                       <SegmentedYesNo
                         label="Auto-start when host + 1 other are seated?"
                         value={draftAutoStart}
@@ -1688,6 +1791,7 @@ export function GameClient({
                         const bb = Math.floor(Number(draftBb));
                         const tm = Math.floor(Number(draftTimer));
                         const ante = Math.floor(Number(draftAnteAmount));
+                        const pres = Math.floor(Number(draftPresentation));
                         if (!Number.isFinite(sb) || sb < 1) {
                           setError("invalid small blind");
                           return;
@@ -1708,6 +1812,10 @@ export function GameClient({
                           setError("ante too large (max 50× big blind)");
                           return;
                         }
+                        if (!Number.isFinite(pres) || pres < 0 || pres > 30) {
+                          setError("showdown presentation must be 0–30s");
+                          return;
+                        }
                         send({
                           type: "host_game_settings",
                           smallBlind: sb,
@@ -1722,6 +1830,8 @@ export function GameClient({
                           utgStraddleAllowed: draftStraddle,
                           revealWithNoAction: draftReveal,
                           spectatorsAllowed: draftSpectators,
+                          showdownPresentationSeconds: pres,
+                          dealToSittingOut: draftDealAway,
                         });
                         setSettingsOpen(false);
                       }}

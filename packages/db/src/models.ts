@@ -34,6 +34,10 @@ export interface GameDocument extends mongoose.Document {
   utgStraddleAllowed: boolean;
   revealWithNoAction: boolean;
   spectatorsAllowed: boolean;
+  /** Seconds winners/boards stay visible before auto-start (0–30). */
+  showdownPresentationSeconds: number;
+  /** When true, away/sitting-out seats still get dealt in. */
+  dealToSittingOut: boolean;
   status: "lobby" | "playing" | "ended";
   players: GamePlayerDoc[];
   /** Cumulative count of hands dealt for this room. */
@@ -78,6 +82,8 @@ const GameSchema = new Schema<GameDocument>(
     utgStraddleAllowed: { type: Boolean, default: false },
     revealWithNoAction: { type: Boolean, default: true },
     spectatorsAllowed: { type: Boolean, default: true },
+    showdownPresentationSeconds: { type: Number, default: 3 },
+    dealToSittingOut: { type: Boolean, default: false },
     status: {
       type: String,
       enum: ["lobby", "playing", "ended"],
@@ -121,8 +127,10 @@ export interface HandHistoryDocument extends mongoose.Document {
   smallBlind: number;
   bigBlind: number;
   anteAmount: number;
-  /** Final community cards. */
+  /** Final community cards (run 1 / primary board). */
   board: string[];
+  /** Second board when the hand was run twice. */
+  secondBoard?: string[];
   pot: number;
   /** Per-player rollup with optional revealed hole cards. */
   players: HandHistoryPlayer[];
@@ -169,6 +177,7 @@ const HandHistorySchema = new Schema<HandHistoryDocument>(
     bigBlind: { type: Number, default: 0 },
     anteAmount: { type: Number, default: 0 },
     board: { type: [String], default: [] },
+    secondBoard: { type: [String], default: [] },
     pot: { type: Number, default: 0 },
     players: { type: [HandHistoryPlayerSchema], default: [] },
     winners: { type: [HandHistoryWinnerSchema], default: [] },

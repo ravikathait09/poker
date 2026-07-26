@@ -46,6 +46,8 @@ export async function POST(req: Request) {
       utgStraddleAllowed: false,
       revealWithNoAction: true,
       spectatorsAllowed: true,
+      showdownPresentationSeconds: 3,
+      dealToSittingOut: false,
       status: "lobby",
       players: [
         {

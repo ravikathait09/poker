@@ -64,6 +64,12 @@ function normalizeRunItTwice(v: unknown): "off" | "always" | "ask" {
   return v === "always" || v === "ask" ? v : "off";
 }
 
+function clampPresentationSeconds(v: unknown): number {
+  const n = Math.floor(Number(v ?? 3));
+  if (!Number.isFinite(n)) return 3;
+  return Math.max(0, Math.min(30, n));
+}
+
 export class Room {
   readonly gameId: string;
   readonly hostPlayerId: string;
@@ -82,16 +88,29 @@ export class Room {
   utgStraddleAllowed = false;
   revealWithNoAction = true;
   spectatorsAllowed = true;
+  showdownPresentationSeconds = 3;
+  dealToSittingOut = false;
   private members = new Map<string, RoomMember>();
   private sockets = new Map<string, WebSocket>();
   private observerSockets = new Set<WebSocket>();
   activeHand: PokerHand | null = null;
+  /**
+   * Completed-hand snapshot kept until the next deal so clients can show
+   * winners and (when enabled) rabbit / undealt community cards.
+   */
+  private lastHandReveal: HandPublic | null = null;
+  /** Showdown hole cards kept with lastHandReveal when revealWithNoAction. */
+  private lastShowdownHoles = new Map<string, [string, string]>();
   private lastButtonSeat: number | null = null;
   private jwtSecret: string;
   private botTimer: ReturnType<typeof setTimeout> | null = null;
   private turnActTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoStartTimer: ReturnType<typeof setTimeout> | null = null;
+  private ritVoteTimer: ReturnType<typeof setTimeout> | null = null;
   /** Server timestamp (ms) when the current to-act must auto-act, or null. */
   turnDeadlineMs: number | null = null;
+  /** Deadline for run-it-twice ask vote. */
+  ritVoteExpiresAt: number | null = null;
 
   constructor(
     gameId: string,
@@ -141,6 +160,8 @@ export class Room {
       utgStraddleAllowed?: boolean;
       revealWithNoAction?: boolean;
       spectatorsAllowed?: boolean;
+      showdownPresentationSeconds?: number;
+      dealToSittingOut?: boolean;
       handsPlayed?: number;
       players: GamePlayerDoc[];
     },
@@ -181,6 +202,10 @@ export class Room {
     r.utgStraddleAllowed = doc.utgStraddleAllowed === true;
     r.revealWithNoAction = doc.revealWithNoAction !== false;
     r.spectatorsAllowed = doc.spectatorsAllowed !== false;
+    r.showdownPresentationSeconds = clampPresentationSeconds(
+      doc.showdownPresentationSeconds,
+    );
+    r.dealToSittingOut = doc.dealToSittingOut === true;
     return r;
   }
 
@@ -218,6 +243,8 @@ export class Room {
           utgStraddleAllowed: this.utgStraddleAllowed,
           revealWithNoAction: this.revealWithNoAction,
           spectatorsAllowed: this.spectatorsAllowed,
+          showdownPresentationSeconds: this.showdownPresentationSeconds,
+          dealToSittingOut: this.dealToSittingOut,
           status:
             this.activeHand && !this.activeHand.handComplete
               ? "playing"
@@ -249,6 +276,8 @@ export class Room {
       utgStraddleAllowed?: boolean;
       revealWithNoAction?: boolean;
       spectatorsAllowed?: boolean;
+      showdownPresentationSeconds?: number;
+      dealToSittingOut?: boolean;
     };
     const inHand = !!(this.activeHand && !this.activeHand.handComplete);
     const idsFromDb = new Set(g.players.map((p) => p.playerId));
@@ -299,6 +328,14 @@ export class Room {
       }
       if (typeof g.spectatorsAllowed === "boolean") {
         this.spectatorsAllowed = g.spectatorsAllowed;
+      }
+      if (g.showdownPresentationSeconds !== undefined) {
+        this.showdownPresentationSeconds = clampPresentationSeconds(
+          g.showdownPresentationSeconds,
+        );
+      }
+      if (typeof g.dealToSittingOut === "boolean") {
+        this.dealToSittingOut = g.dealToSittingOut;
       }
       for (const id of [...this.members.keys()]) {
         const m = this.members.get(id)!;
@@ -576,23 +613,36 @@ export class Room {
     this.turnDeadlineMs = null;
   }
 
+  private clearRitVoteTimer(): void {
+    if (this.ritVoteTimer) {
+      clearTimeout(this.ritVoteTimer);
+      this.ritVoteTimer = null;
+    }
+    this.ritVoteExpiresAt = null;
+  }
+
   private clearAllActionTimers(): void {
     this.clearBotTimer();
     this.clearTurnActTimer();
+    this.clearRitVoteTimer();
   }
 
   /** Auto check or fold when the action clock expires (human seats). */
   private scheduleTurnAct(): void {
     this.clearTurnActTimer();
     if (!this.activeHand || this.activeHand.handComplete) return;
+    if (this.activeHand.isAwaitingRunItTwiceVote()) return;
     const id = this.activeHand.toActPlayerId;
     if (!id) return;
     const configured = this.turnTimerSeconds;
     /** 0 or negative = use default 20s so the table never waits forever. */
-    const sec =
-      configured > 0 ? Math.min(120, configured) : 20;
+    let sec = configured > 0 ? Math.min(120, configured) : 20;
     const m = this.members.get(id);
     if (m?.isBot) return;
+    /** Away seats that were still dealt get a short clock so they don't stall. */
+    if (m?.sittingOut && this.dealToSittingOut) {
+      sec = Math.min(sec, 1);
+    }
     this.turnDeadlineMs = Date.now() + sec * 1000;
     this.turnActTimer = setTimeout(() => {
       void (async () => {
@@ -630,6 +680,10 @@ export class Room {
   scheduleBotTurns(): void {
     this.clearBotTimer();
     if (!this.activeHand || this.activeHand.handComplete) return;
+    if (this.activeHand.isAwaitingRunItTwiceVote()) {
+      this.scheduleRitBotVotes();
+      return;
+    }
     const id = this.activeHand.toActPlayerId;
     if (!id) return;
     const m = this.members.get(id);
@@ -641,6 +695,9 @@ export class Room {
           if (!this.activeHand || this.activeHand.handComplete) return;
           this.activeHand.applySimpleBotAction(id);
           if (this.activeHand.handComplete) await this.finalizeHand();
+          else if (this.activeHand.isAwaitingRunItTwiceVote()) {
+            this.scheduleRitVoteTimeout();
+          }
           await this.persist();
           this.broadcast();
         } catch (e) {
@@ -650,14 +707,69 @@ export class Room {
     }, 400);
   }
 
+  /** Bots always vote yes for run-it-twice so ASK mode can resolve in tests. */
+  private scheduleRitBotVotes(): void {
+    if (!this.activeHand?.isAwaitingRunItTwiceVote()) return;
+    const eligible = this.activeHand.getRunItTwiceEligible();
+    for (const id of eligible) {
+      const m = this.members.get(id);
+      if (!m?.isBot) continue;
+      try {
+        const done = this.activeHand.voteRunItTwice(id, true);
+        if (done) {
+          void (async () => {
+            if (this.activeHand?.handComplete) await this.finalizeHand();
+            await this.persist();
+            this.broadcast();
+          })();
+          return;
+        }
+      } catch {
+        /* already voted / race */
+      }
+    }
+  }
+
+  private scheduleRitVoteTimeout(): void {
+    this.clearRitVoteTimer();
+    if (!this.activeHand?.isAwaitingRunItTwiceVote()) return;
+    const sec = 15;
+    this.ritVoteExpiresAt = Date.now() + sec * 1000;
+    this.ritVoteTimer = setTimeout(() => {
+      void (async () => {
+        this.ritVoteTimer = null;
+        this.ritVoteExpiresAt = null;
+        try {
+          if (!this.activeHand?.isAwaitingRunItTwiceVote()) return;
+          this.activeHand.forceRunItTwiceTimeout();
+          if (this.activeHand.handComplete) await this.finalizeHand();
+          await this.persist();
+          this.broadcast();
+        } catch (e) {
+          console.error("[rit-timeout]", e);
+        }
+      })();
+    }, sec * 1000);
+    this.scheduleRitBotVotes();
+  }
+
+  async applyRunItTwiceVote(playerId: string, yes: boolean): Promise<void> {
+    if (!this.activeHand?.isAwaitingRunItTwiceVote()) {
+      throw new Error("no_rit_vote");
+    }
+    const done = this.activeHand.voteRunItTwice(playerId, yes);
+    if (done) {
+      this.clearRitVoteTimer();
+      if (this.activeHand.handComplete) await this.finalizeHand();
+    }
+  }
+
   seatedPlayers(): RoomMember[] {
-    return [...this.members.values()].filter(
-      (m) =>
-        m.seatIndex !== null &&
-        m.approved &&
-        m.chips > 0 &&
-        !m.sittingOut,
-    );
+    return [...this.members.values()].filter((m) => {
+      if (m.seatIndex === null || !m.approved || m.chips <= 0) return false;
+      if (m.sittingOut && !this.dealToSittingOut) return false;
+      return true;
+    });
   }
 
   startHand(hostId: string): void {
@@ -668,6 +780,11 @@ export class Room {
       throw new Error("hand_active");
     }
     this.clearAllActionTimers();
+    if (this.autoStartTimer) {
+      clearTimeout(this.autoStartTimer);
+      this.autoStartTimer = null;
+    }
+    this.lastHandReveal = null;
     const seats = [...new Set(seated.map((s) => s.seatIndex!))].sort(
       (a, b) => a - b,
     );
@@ -697,12 +814,15 @@ export class Room {
       }
       seatSet.add(si);
     }
+    this.lastShowdownHoles.clear();
     this.activeHand = new PokerHand(
       hp,
       btn,
       this.smallBlind,
       this.bigBlind,
       this.antesEnabled ? this.anteAmount : 0,
+      Math.random,
+      this.runItTwice,
     );
     void this.audit(hostId, "hand_start", { buttonSeat: btn });
   }
@@ -715,6 +835,9 @@ export class Room {
     if (!this.activeHand || this.activeHand.handComplete) {
       throw new Error("no_hand");
     }
+    if (this.activeHand.isAwaitingRunItTwiceVote()) {
+      throw new Error("awaiting_run_it_twice");
+    }
     if (action === "fold") this.activeHand.fold(playerId);
     else if (action === "check") this.activeHand.check(playerId);
     else if (action === "call") this.activeHand.call(playerId);
@@ -724,6 +847,8 @@ export class Room {
     }
     if (this.activeHand.handComplete) {
       await this.finalizeHand();
+    } else if (this.activeHand.isAwaitingRunItTwiceVote()) {
+      this.scheduleRitVoteTimeout();
     }
   }
 
@@ -771,6 +896,7 @@ export class Room {
           bigBlind: this.bigBlind,
           anteAmount: this.antesEnabled ? this.anteAmount : 0,
           board: summary.board,
+          secondBoard: summary.secondBoard,
           pot: summary.pot,
           players,
           winners,
@@ -796,6 +922,17 @@ export class Room {
       handId,
       handIndex: this.handsPlayed,
     });
+    const pub = this.activeHand.getPublic();
+    this.lastHandReveal = {
+      ...pub,
+      rabbitBoard: this.rabbitHunting ? pub.rabbitBoard : [],
+    };
+    this.lastShowdownHoles.clear();
+    if (this.revealWithNoAction && summary && !summary.endedByFold) {
+      for (const p of summary.players) {
+        if (p.hole) this.lastShowdownHoles.set(p.playerId, p.hole);
+      }
+    }
     this.activeHand = null;
     await this.persist();
   }
@@ -815,6 +952,8 @@ export class Room {
       utgStraddleAllowed?: boolean;
       revealWithNoAction?: boolean;
       spectatorsAllowed?: boolean;
+      showdownPresentationSeconds?: number;
+      dealToSittingOut?: boolean;
     },
   ): void {
     if (actorId !== this.hostPlayerId) throw new Error("not_host");
@@ -870,10 +1009,25 @@ export class Room {
     if (patch.spectatorsAllowed !== undefined) {
       this.spectatorsAllowed = patch.spectatorsAllowed;
     }
+    if (patch.showdownPresentationSeconds !== undefined) {
+      this.showdownPresentationSeconds = clampPresentationSeconds(
+        patch.showdownPresentationSeconds,
+      );
+    }
+    if (patch.dealToSittingOut !== undefined) {
+      this.dealToSittingOut = patch.dealToSittingOut;
+    }
   }
 
   getHandPublic(): HandPublic | null {
-    return this.activeHand ? this.activeHand.getPublic() : null;
+    if (this.activeHand) {
+      const pub = this.activeHand.getPublic();
+      return {
+        ...pub,
+        rabbitBoard: this.rabbitHunting ? pub.rabbitBoard : [],
+      };
+    }
+    return this.lastHandReveal;
   }
 
   buildGameState(
@@ -936,13 +1090,19 @@ export class Room {
         // mentally and avoids extra server work per broadcast.
         const hc = this.activeHand.getHoleCards(m.playerId);
         if (hc) base.holeCards = hc;
+      } else if (!this.activeHand && this.lastShowdownHoles.has(m.playerId)) {
+        base.holeCards = this.lastShowdownHoles.get(m.playerId);
       }
       return base;
     });
     const hand =
       rawHand === null
         ? null
-        : { ...rawHand, turnExpiresAt: this.turnDeadlineMs };
+        : {
+            ...rawHand,
+            turnExpiresAt: this.turnDeadlineMs,
+            runItTwiceExpiresAt: this.ritVoteExpiresAt,
+          };
     return {
       gameId: this.gameId,
       players,
@@ -965,6 +1125,8 @@ export class Room {
         utgStraddleAllowed: this.utgStraddleAllowed,
         revealWithNoAction: this.revealWithNoAction,
         spectatorsAllowed: this.spectatorsAllowed,
+        showdownPresentationSeconds: this.showdownPresentationSeconds,
+        dealToSittingOut: this.dealToSittingOut,
       },
       hostPlayerId: this.hostPlayerId,
       hostSeesAll: hostSeesAllEnabled(),
@@ -992,20 +1154,37 @@ export class Room {
   private tryAutoStartHandAfterBroadcast(): void {
     if (this.activeHand) return;
     if (!this.autoStartHand) return;
+    if (this.autoStartTimer) return;
     const seated = this.seatedPlayers();
     const hostSeated = seated.some((s) => s.playerId === this.hostPlayerId);
     if (!hostSeated || seated.length < 2) return;
-    try {
-      this.startHand(this.hostPlayerId);
-      void this.persist();
-      this.pushGameState();
-    } catch {
-      /* need_2_players, hand_active */
+    const delayMs = this.lastHandReveal
+      ? this.showdownPresentationSeconds * 1000
+      : 0;
+    const run = () => {
+      this.autoStartTimer = null;
+      if (this.activeHand) return;
+      if (!this.autoStartHand) return;
+      try {
+        this.startHand(this.hostPlayerId);
+        void this.persist();
+        this.pushGameState();
+      } catch {
+        /* need_2_players, hand_active */
+      }
+    };
+    if (delayMs <= 0) {
+      run();
+      return;
     }
+    this.autoStartTimer = setTimeout(run, delayMs);
   }
 
   broadcast(): void {
     this.pushGameState();
+    if (this.activeHand?.isAwaitingRunItTwiceVote() && !this.ritVoteTimer) {
+      this.scheduleRitVoteTimeout();
+    }
     this.tryAutoStartHandAfterBroadcast();
   }
 
@@ -1087,6 +1266,10 @@ export async function loadRoomFromDb(
         (g as { revealWithNoAction?: boolean }).revealWithNoAction !== false,
       spectatorsAllowed:
         (g as { spectatorsAllowed?: boolean }).spectatorsAllowed !== false,
+      showdownPresentationSeconds: (g as { showdownPresentationSeconds?: number })
+        .showdownPresentationSeconds,
+      dealToSittingOut:
+        (g as { dealToSittingOut?: boolean }).dealToSittingOut === true,
       players: g.players,
     },
     jwtSecret,

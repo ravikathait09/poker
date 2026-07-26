@@ -254,6 +254,17 @@ wss.on("connection", (ws) => {
           room.broadcast();
           break;
         }
+        case "run_it_twice_vote": {
+          const m = room.getMember(ctx.playerId!);
+          if (!m?.approved || m.seatIndex === null) {
+            send(ws, { type: "error", message: "not_seated" });
+            return;
+          }
+          await room.applyRunItTwiceVote(ctx.playerId!, msg.yes);
+          await room.persist();
+          room.broadcast();
+          break;
+        }
         case "dev_add_test_bot": {
           if (!DEV_BOTS) {
             send(ws, { type: "error", message: "dev_bots_disabled" });
@@ -303,6 +314,8 @@ wss.on("connection", (ws) => {
             utgStraddleAllowed: msg.utgStraddleAllowed,
             revealWithNoAction: msg.revealWithNoAction,
             spectatorsAllowed: msg.spectatorsAllowed,
+            showdownPresentationSeconds: msg.showdownPresentationSeconds,
+            dealToSittingOut: msg.dealToSittingOut,
           });
           await room.persist();
           room.broadcast();

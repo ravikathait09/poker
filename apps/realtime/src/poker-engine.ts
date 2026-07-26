@@ -7,6 +7,7 @@ import {
 } from "@ganga/shared";
 
 export type Street = "preflop" | "flop" | "turn" | "river";
+export type RunItTwiceMode = "off" | "always" | "ask";
 
 export interface HandPlayer {
   playerId: string;
@@ -27,6 +28,13 @@ export interface SidePotDisplay {
 export interface HandPublic {
   street: Street | null;
   board: string[];
+  /** Second board when the hand was run twice; empty otherwise. */
+  secondBoard: string[];
+  /**
+   * Community cards that would have been dealt after a fold-win (rabbit hunt).
+   * Empty unless the hand ended early with an incomplete board.
+   */
+  rabbitBoard: string[];
   pot: number;
   sidePots: SidePotDisplay[];
   currentBet: number;
@@ -41,6 +49,10 @@ export interface HandPublic {
   handComplete: boolean;
   /** Chips put in pot this betting street, for felt display */
   seatBets: { seatIndex: number; amount: number }[];
+  /** True while contestants are deciding whether to run it twice. */
+  runItTwicePending?: boolean;
+  runItTwiceEligible?: string[];
+  runItTwiceVotes?: { playerId: string; yes: boolean }[];
 }
 
 export interface HandSummaryPlayer {
@@ -58,6 +70,9 @@ export interface HandSummary {
   startedAt: Date;
   endedAt: Date;
   board: string[];
+  secondBoard: string[];
+  /** Undealt community cards peeked on fold-win (may be empty). */
+  rabbitBoard: string[];
   pot: number;
   endedByFold: boolean;
   players: HandSummaryPlayer[];
@@ -91,6 +106,13 @@ export class PokerHand {
   private lastAction?: { playerId: string; action: string; amount?: number };
   winners: { playerId: string; amount: number; hand?: string }[] | null = null;
   handComplete = false;
+  /** Peeked remaining board after fold-win; does not affect the pot. */
+  private rabbitBoard: Card[] = [];
+  private secondBoard: Card[] = [];
+  private runItTwiceMode: RunItTwiceMode = "off";
+  private ritPending = false;
+  private ritEligible: string[] = [];
+  private ritVotes = new Map<string, boolean>();
   private startedAt: Date = new Date();
   private summary: HandSummary | null = null;
 
@@ -101,12 +123,14 @@ export class PokerHand {
     bigBlind: number,
     anteAmount: number = 0,
     rng: () => number = Math.random,
+    runItTwiceMode: RunItTwiceMode = "off",
   ) {
     this.smallBlind = smallBlind;
     this.bigBlind = bigBlind;
     this.antePerPlayer = Math.max(0, Math.floor(anteAmount));
     this.lastRaiseIncrement = bigBlind;
     this.buttonSeat = buttonSeat;
+    this.runItTwiceMode = runItTwiceMode;
     const occ = [...seatPlayers].sort((a, b) => a.seatIndex - b.seatIndex);
     if (occ.length < 2) throw new Error("need 2+ players");
     this.players = new Map();
@@ -250,7 +274,7 @@ export class PokerHand {
   }
 
   private advanceStreet(): void {
-    if (this.handComplete) return;
+    if (this.handComplete || this.ritPending) return;
     for (const p of this.players.values()) {
       p.betThisStreet = 0;
     }
@@ -261,9 +285,9 @@ export class PokerHand {
       this.finishHand();
       return;
     }
-    if (live.every((p) => p.allIn)) {
-      while (this.board.length < 5) this.dealBoardChunk();
-      this.showdown();
+    /** At most one seat can still bet — run out (optionally twice). */
+    if (this.bettingIsDead(live)) {
+      this.beginBoardRunOut();
       return;
     }
     if (!this.street) {
@@ -280,7 +304,7 @@ export class PokerHand {
       this.dealBoardChunk();
       this.street = "river";
     } else {
-      this.showdown();
+      this.beginBoardRunOut();
       return;
     }
     const n = this.order.length;
@@ -326,6 +350,147 @@ export class PokerHand {
       const c = this.deck.pop();
       if (c) this.board.push(c);
     }
+  }
+
+  /**
+   * Cards that would be dealt next (with burns), without mutating the live deck
+   * or board. Used for rabbit hunting after a fold ends the hand early.
+   */
+  private peekRemainingBoardCards(): Card[] {
+    if (this.board.length >= 5) return [];
+    const deck = this.deck.slice();
+    const out: Card[] = [];
+    let len = this.board.length;
+    while (len < 5) {
+      deck.pop(); // burn
+      const n = len === 0 ? 3 : 1;
+      for (let i = 0; i < n; i++) {
+        const c = deck.pop();
+        if (!c) return out;
+        out.push(c);
+        len += 1;
+      }
+    }
+    return out;
+  }
+
+  /** True when ≥2 contestants remain but ≤1 can still put chips in. */
+  private bettingIsDead(live: HandPlayer[]): boolean {
+    if (live.length < 2) return false;
+    const canBet = live.filter((p) => !p.allIn);
+    return canBet.length <= 1;
+  }
+
+  /** Deal remaining streets onto `target` from the live deck (with burns). */
+  private dealRemainingOnto(target: Card[]): void {
+    while (target.length < 5) {
+      this.deck.pop(); // burn
+      const n = target.length === 0 ? 3 : 1;
+      for (let i = 0; i < n; i++) {
+        const c = this.deck.pop();
+        if (c) target.push(c);
+      }
+    }
+  }
+
+  private beginBoardRunOut(): void {
+    if (this.handComplete || this.ritPending) return;
+    this.toActPlayerId = null;
+    if (this.board.length >= 5) {
+      this.showdown();
+      return;
+    }
+    if (this.runItTwiceMode === "always") {
+      this.showdownTwice();
+      return;
+    }
+    if (this.runItTwiceMode === "ask") {
+      this.ritPending = true;
+      this.ritEligible = this.activeInHand().map((p) => p.playerId);
+      this.ritVotes.clear();
+      this.lastAction = { playerId: "system", action: "run_it_twice_ask" };
+      return;
+    }
+    while (this.board.length < 5) this.dealBoardChunk();
+    this.street = "river";
+    this.showdown();
+  }
+
+  isAwaitingRunItTwiceVote(): boolean {
+    return this.ritPending;
+  }
+
+  getRunItTwiceEligible(): string[] {
+    return this.ritPending ? [...this.ritEligible] : [];
+  }
+
+  /**
+   * Contestant vote for run-it-twice. Any "no" ends the vote as single run;
+   * unanimous "yes" runs twice. Returns true when the vote resolved the hand.
+   */
+  voteRunItTwice(playerId: string, yes: boolean): boolean {
+    if (!this.ritPending) throw new Error("no_rit_vote");
+    if (!this.ritEligible.includes(playerId)) throw new Error("not_eligible");
+    this.ritVotes.set(playerId, yes);
+    if (!yes) {
+      this.finishRunItTwiceVote(false);
+      return true;
+    }
+    if (this.ritEligible.every((id) => this.ritVotes.get(id) === true)) {
+      this.finishRunItTwiceVote(true);
+      return true;
+    }
+    return false;
+  }
+
+  /** Ask-mode timeout (or host force): default to a single board. */
+  forceRunItTwiceTimeout(): void {
+    if (!this.ritPending) return;
+    this.finishRunItTwiceVote(false);
+  }
+
+  private finishRunItTwiceVote(runTwice: boolean): void {
+    this.ritPending = false;
+    if (runTwice) {
+      this.showdownTwice();
+      return;
+    }
+    while (this.board.length < 5) this.dealBoardChunk();
+    this.street = "river";
+    this.showdown();
+  }
+
+  private showdownTwice(): void {
+    const sharedLen = this.board.length;
+    const board1 = this.board.slice();
+    this.dealRemainingOnto(board1);
+    const board2 = this.board.slice(0, sharedLen);
+    this.dealRemainingOnto(board2);
+    this.board = board1;
+    this.secondBoard = board2;
+    this.street = "river";
+    const playerRows = [...this.players.values()].map((p) => ({
+      id: p.playerId,
+      committed: p.totalCommittedHand,
+      folded: p.folded,
+      hole: p.hole!,
+    }));
+    const payouts = resolveSidePotsTwice(playerRows, board1, board2);
+    this.winners = payouts.map((x) => ({
+      playerId: x.playerId,
+      amount: x.amount,
+      hand: x.handLabel,
+    }));
+    for (const w of payouts) {
+      const pl = this.players.get(w.playerId);
+      if (pl) pl.chips += w.amount;
+    }
+    this.recordSummary(false, payouts);
+    for (const p of this.players.values()) {
+      p.totalCommittedHand = 0;
+    }
+    this.handComplete = true;
+    this.toActPlayerId = null;
   }
 
   fold(playerId: string): void {
@@ -404,6 +569,7 @@ export class PokerHand {
 
   private ensureActor(playerId: string): void {
     if (this.handComplete) throw new Error("hand_over");
+    if (this.ritPending) throw new Error("awaiting_run_it_twice");
     if (this.toActPlayerId !== playerId) throw new Error("not_your_turn");
   }
 
@@ -429,6 +595,9 @@ export class PokerHand {
       const pot = this.getPotTotal();
       this.winners = [{ playerId: w.playerId, amount: pot }];
       w.chips += pot;
+      if (this.board.length < 5) {
+        this.rabbitBoard = this.peekRemainingBoardCards();
+      }
       this.recordSummary(true, []);
       for (const p of this.players.values()) {
         p.totalCommittedHand = 0;
@@ -437,8 +606,7 @@ export class PokerHand {
       this.toActPlayerId = null;
       return;
     }
-    while (this.board.length < 5) this.dealBoardChunk();
-    this.showdown();
+    this.beginBoardRunOut();
   }
 
   private showdown(): void {
@@ -506,6 +674,8 @@ export class PokerHand {
       startedAt: this.startedAt,
       endedAt: new Date(),
       board: this.board.map(cardToString),
+      secondBoard: this.secondBoard.map(cardToString),
+      rabbitBoard: this.rabbitBoard.map(cardToString),
       pot: this.getPotTotal(),
       endedByFold,
       players,
@@ -526,6 +696,8 @@ export class PokerHand {
     return {
       street: this.street,
       board: this.board.map(cardToString),
+      secondBoard: this.secondBoard.map(cardToString),
+      rabbitBoard: this.rabbitBoard.map(cardToString),
       pot: this.getPotTotal(),
       sidePots: snapshotSidePots(this.players, this.board),
       currentBet: this.currentBet,
@@ -541,6 +713,14 @@ export class PokerHand {
       seatBets: [...this.players.values()]
         .filter((p) => p.betThisStreet > 0)
         .map((p) => ({ seatIndex: p.seatIndex, amount: p.betThisStreet })),
+      runItTwicePending: this.ritPending || undefined,
+      runItTwiceEligible: this.ritPending ? [...this.ritEligible] : undefined,
+      runItTwiceVotes: this.ritPending
+        ? [...this.ritVotes.entries()].map(([playerId, yes]) => ({
+            playerId,
+            yes,
+          }))
+        : undefined,
     };
   }
 
@@ -684,28 +864,98 @@ function resolveSidePots(
   const payouts: { playerId: string; amount: number; handLabel: string }[] =
     [];
   for (const layer of layers) {
-    const elig = [...layer.eligible];
-    if (elig.length === 0) continue;
-    let best: string[] = [];
-    let bestScore = -1;
-    for (const id of elig) {
-      const p = players.find((x) => x.id === id)!;
-      const v = handValue(p.hole, board);
-      if (v > bestScore) {
-        bestScore = v;
-        best = [id];
-      } else if (v === bestScore) {
-        best.push(id);
-      }
+    payouts.push(...awardLayer(players, board, layer));
+  }
+  return mergePayouts(payouts);
+}
+
+/**
+ * Run-it-twice: multi-eligible side-pot layers split 50/50 across two boards.
+ * Sole-eligible layers pay in full once (board-independent).
+ * Odd chip (if any) goes to the first board.
+ */
+function resolveSidePotsTwice(
+  players: {
+    id: string;
+    committed: number;
+    folded: boolean;
+    hole: [Card, Card];
+  }[],
+  board1: Card[],
+  board2: Card[],
+): { playerId: string; amount: number; handLabel: string }[] {
+  const layers = computeSidePotLayers(players, board1);
+  const payouts: { playerId: string; amount: number; handLabel: string }[] =
+    [];
+  for (const layer of layers) {
+    if (layer.eligible.size <= 1) {
+      payouts.push(...awardLayer(players, board1, layer));
+      continue;
     }
-    const share = layer.amount / best.length;
-    for (const id of best) {
-      const p = players.find((x) => x.id === id)!;
-      const label = handCategoryLabel(p.hole, board);
-      payouts.push({ playerId: id, amount: share, handLabel: label });
+    const half1 = Math.floor(layer.amount / 2);
+    const half2 = layer.amount - half1;
+    payouts.push(
+      ...awardLayer(players, board1, { amount: half1, eligible: layer.eligible }),
+    );
+    payouts.push(
+      ...awardLayer(players, board2, { amount: half2, eligible: layer.eligible }),
+    );
+  }
+  return mergePayouts(payouts);
+}
+
+function awardLayer(
+  players: {
+    id: string;
+    committed: number;
+    folded: boolean;
+    hole: [Card, Card];
+  }[],
+  board: Card[],
+  layer: PotLayer,
+): { playerId: string; amount: number; handLabel: string }[] {
+  const elig = [...layer.eligible];
+  if (elig.length === 0 || layer.amount <= 0) return [];
+  let best: string[] = [];
+  let bestScore = -1;
+  for (const id of elig) {
+    const p = players.find((x) => x.id === id)!;
+    const v = handValue(p.hole, board);
+    if (v > bestScore) {
+      bestScore = v;
+      best = [id];
+    } else if (v === bestScore) {
+      best.push(id);
     }
   }
-  return payouts;
+  const share = layer.amount / best.length;
+  return best.map((id) => {
+    const p = players.find((x) => x.id === id)!;
+    return {
+      playerId: id,
+      amount: share,
+      handLabel: handCategoryLabel(p.hole, board),
+    };
+  });
+}
+
+function mergePayouts(
+  payouts: { playerId: string; amount: number; handLabel: string }[],
+): { playerId: string; amount: number; handLabel: string }[] {
+  const byId = new Map<
+    string,
+    { playerId: string; amount: number; handLabel: string }
+  >();
+  for (const p of payouts) {
+    const cur = byId.get(p.playerId);
+    if (!cur) {
+      byId.set(p.playerId, { ...p });
+    } else {
+      cur.amount += p.amount;
+      if (p.handLabel) cur.handLabel = p.handLabel;
+    }
+  }
+  return [...byId.values()];
 }
 
 function handValue(hole: [Card, Card], board: Card[]): number {

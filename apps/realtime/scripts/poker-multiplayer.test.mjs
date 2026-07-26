@@ -118,3 +118,57 @@ test("5 players: orbit — each acts preflop on limp line", () => {
   assert.equal(pre.length, 5);
   assert.equal(new Set(pre).size, 5);
 });
+
+test("fold-win peeks undealt rabbit board without changing pot board", () => {
+  const hp = [p("r0", 0), p("r1", 3)];
+  const h = new PokerHand(hp, 0, 5, 10, 0, () => 0.19);
+  assert.equal(h.street, "preflop");
+  assert.equal(h.getPublic().board.length, 0);
+  // Heads-up: SB acts first; fold ends the hand immediately.
+  h.fold(h.toActPlayerId);
+  assert.ok(h.handComplete);
+  const pub = h.getPublic();
+  assert.equal(pub.board.length, 0, "fold-win must not run out the board");
+  assert.equal(pub.rabbitBoard.length, 5, "rabbit peeks full remaining board");
+  assert.equal(pub.winners?.length, 1);
+});
+
+test("run it twice always: all-in preflop yields two boards", () => {
+  const hp = [p("t0", 0, 20), p("t1", 3, 20)];
+  const h = new PokerHand(hp, 0, 5, 10, 0, () => 0.27, "always");
+  // SB shoves; BB calls → both all-in, board runs twice.
+  h.raise(h.toActPlayerId, 20);
+  assert.equal(h.toActPlayerId, "t1");
+  h.call("t1");
+  assert.ok(h.handComplete);
+  const pub = h.getPublic();
+  assert.equal(pub.board.length, 5);
+  assert.equal(pub.secondBoard.length, 5);
+  assert.notDeepEqual(pub.board, pub.secondBoard);
+  const awarded = (pub.winners ?? []).reduce((s, w) => s + w.amount, 0);
+  assert.equal(awarded, 40);
+});
+
+test("run it twice ask: unanimous yes runs two boards", () => {
+  const hp = [p("v0", 0, 20), p("v1", 3, 20)];
+  const h = new PokerHand(hp, 0, 5, 10, 0, () => 0.41, "ask");
+  h.raise(h.toActPlayerId, 20);
+  h.call("v1");
+  assert.ok(h.isAwaitingRunItTwiceVote());
+  assert.equal(h.voteRunItTwice("v0", true), false);
+  assert.equal(h.voteRunItTwice("v1", true), true);
+  assert.ok(h.handComplete);
+  assert.equal(h.getPublic().secondBoard.length, 5);
+});
+
+test("run it twice ask: any no keeps a single board", () => {
+  const hp = [p("n0", 0, 20), p("n1", 3, 20)];
+  const h = new PokerHand(hp, 0, 5, 10, 0, () => 0.53, "ask");
+  h.raise(h.toActPlayerId, 20);
+  h.call("n1");
+  assert.ok(h.isAwaitingRunItTwiceVote());
+  assert.equal(h.voteRunItTwice("n0", false), true);
+  assert.ok(h.handComplete);
+  assert.equal(h.getPublic().secondBoard.length, 0);
+  assert.equal(h.getPublic().board.length, 5);
+});

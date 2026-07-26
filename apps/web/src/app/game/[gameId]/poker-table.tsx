@@ -21,6 +21,10 @@ export interface TablePlayer {
 export interface TableHand {
   street?: string;
   board?: string[];
+  /** Second board when run-it-twice completed. */
+  secondBoard?: string[];
+  /** Undealt community cards after a fold-win (rabbit hunting). */
+  rabbitBoard?: string[];
   pot?: number;
   toActPlayerId?: string | null;
   handComplete?: boolean;
@@ -30,6 +34,7 @@ export interface TableHand {
   seatBets?: { seatIndex: number; amount: number }[];
   winners?: { playerId: string; amount: number; hand?: string }[] | null;
   turnExpiresAt?: number | null;
+  runItTwicePending?: boolean;
 }
 
 function parseCardCode(code: string): {
@@ -55,13 +60,21 @@ function parseCardCode(code: string): {
   return { rank, suit, red };
 }
 
-function PlayingCardFace({ code }: { code: string }) {
+function PlayingCardFace({
+  code,
+  muted = false,
+}: {
+  code: string;
+  muted?: boolean;
+}) {
   const { rank, suit, red } = parseCardCode(code);
   return (
     <div
-      className={`flex h-11 w-8 shrink-0 flex-col items-center justify-center rounded-md border border-slate-200 bg-white shadow sm:h-14 sm:w-10 ${
-        red ? "text-red-600" : "text-slate-900"
-      }`}
+      className={`flex h-11 w-8 shrink-0 flex-col items-center justify-center rounded-md border shadow sm:h-14 sm:w-10 ${
+        muted
+          ? "border-amber-200/50 bg-white/70 opacity-80"
+          : "border-slate-200 bg-white"
+      } ${red ? "text-red-600" : "text-slate-900"}`}
     >
       <span className="text-[10px] font-bold leading-none sm:text-xs">{rank}</span>
       <span className="text-sm leading-none sm:text-lg">{suit}</span>
@@ -213,8 +226,19 @@ export function PokerTable({
   }
 
   const handLive = Boolean(hand && !hand.handComplete);
+  const handComplete = Boolean(hand?.handComplete);
   const activeStreet = inferStreet(hand);
   const board = hand?.board ?? [];
+  const secondBoard = hand?.secondBoard ?? [];
+  const rabbitBoard = hand?.rabbitBoard ?? [];
+  const showCommunity =
+    handLive ||
+    hand?.runItTwicePending ||
+    (handComplete &&
+      (board.length > 0 ||
+        secondBoard.length > 0 ||
+        rabbitBoard.length > 0 ||
+        (hand?.winners?.length ?? 0) > 0));
   const pot = hand?.pot ?? 0;
   const seatBetMap = new Map<number, number>();
   for (const b of hand?.seatBets ?? []) {
@@ -250,17 +274,64 @@ export function PokerTable({
             <StreetProgressRail street={activeStreet} />
           ) : null}
 
-          {handLive ? (
-            <div className="flex min-h-10 flex-wrap items-center justify-center gap-1 sm:min-h-12 sm:gap-1.5">
-              {board.length === 0 ? (
-                <span className="rounded-full bg-black/20 px-2.5 py-0.5 text-[10px] text-emerald-100/55 sm:px-3 sm:py-1 sm:text-xs">
-                  Community cards after Preflop
+          {showCommunity ? (
+            <div className="flex min-h-10 flex-col items-center gap-1 sm:min-h-12 sm:gap-1.5">
+              {hand?.runItTwicePending ? (
+                <span className="rounded-full bg-amber-900/50 px-2.5 py-0.5 text-[10px] text-amber-100 sm:text-xs">
+                  Run it twice?
                 </span>
-              ) : (
-                board.map((c, idx) => (
-                  <PlayingCardFace key={`${c}-${idx}`} code={c} />
-                ))
-              )}
+              ) : null}
+              <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5">
+                {board.length === 0 &&
+                rabbitBoard.length === 0 &&
+                secondBoard.length === 0 ? (
+                  <span className="rounded-full bg-black/20 px-2.5 py-0.5 text-[10px] text-emerald-100/55 sm:px-3 sm:py-1 sm:text-xs">
+                    Community cards after Preflop
+                  </span>
+                ) : (
+                  <>
+                    {board.map((c, idx) => (
+                      <PlayingCardFace key={`b-${c}-${idx}`} code={c} />
+                    ))}
+                    {rabbitBoard.length > 0 ? (
+                      <>
+                        {board.length > 0 ? (
+                          <span
+                            className="mx-0.5 text-[10px] text-amber-100/50 sm:text-xs"
+                            aria-hidden
+                          >
+                            |
+                          </span>
+                        ) : null}
+                        {rabbitBoard.map((c, idx) => (
+                          <PlayingCardFace
+                            key={`r-${c}-${idx}`}
+                            code={c}
+                            muted
+                          />
+                        ))}
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              {secondBoard.length > 0 ? (
+                <div className="flex flex-col items-center gap-0.5">
+                  <span className="text-[9px] uppercase tracking-wider text-sky-100/70 sm:text-[10px]">
+                    Run 2
+                  </span>
+                  <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1.5">
+                    {secondBoard.map((c, idx) => (
+                      <PlayingCardFace key={`s-${c}-${idx}`} code={c} />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {rabbitBoard.length > 0 ? (
+                <span className="text-[9px] uppercase tracking-wider text-amber-100/70 sm:text-[10px]">
+                  Undealt
+                </span>
+              ) : null}
             </div>
           ) : (
             <p className="rounded-full bg-black/20 px-3 py-1 text-center text-[11px] text-emerald-100/75 sm:px-4 sm:py-2 sm:text-xs">

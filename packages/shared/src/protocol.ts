@@ -52,6 +52,14 @@ export const WsClientMessageSchema = z.discriminatedUnion("type", [
     utgStraddleAllowed: z.boolean().optional(),
     revealWithNoAction: z.boolean().optional(),
     spectatorsAllowed: z.boolean().optional(),
+    /** Seconds to leave winners / boards on the felt before auto-start. */
+    showdownPresentationSeconds: z.number().int().min(0).max(30).optional(),
+    /** When true, seated "away" players still receive hole cards and post blinds. */
+    dealToSittingOut: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("run_it_twice_vote"),
+    yes: z.boolean(),
   }),
   z.object({
     type: z.literal("admin_observe"),
